@@ -128,6 +128,7 @@ public class SmartphoneTrackingEventManagementPanelPO extends PageArea {
                     final boolean isSelected = entry.isSelected();
                     if (shouldBeSelected != isSelected) {
                         final WebElement checkboxDiv = entry.getWebElement().findElement(By.xpath("./td[1]/div"));
+                        scrollToView(checkboxDiv);
                         new Actions(this.driver).moveToElement(checkboxDiv).click().build().perform();
                         changed = true;
                         break;
