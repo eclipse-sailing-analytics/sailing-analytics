@@ -3,7 +3,7 @@
 #  - the name of the branch for which you would like
 #    to download the latest workflow run's build artifacts
 #  - the Github PAT (personal access token)
-#  - the Github repository {owner}/{repo}, such as SAP/sailing-analytics
+#  - the Github repository {owner}/{repo}, such as eclipse-sailing-analytics/sailing-analytics
 # If found, the build.log.zip and test-result.zip files
 # will be downloaded to the current working directory.
 # The script will exit with status 0 if the workflow's
@@ -12,8 +12,7 @@
 # an exit status of 1 is returned. If the downloads fail,
 # an exit status of 2 is returned.
 BRANCH="${1}"
-BEARER_TOKEN="${2}"
-GITHUB_REPOSITORY="${3}"
+GITHUB_REPOSITORY="${2}"
 UNIX_TIME=$( date +%s )
 UNIX_DATE=$( date --iso-8601=second )
 UNIX_TIME_YESTERDAY=$(( UNIX_TIME - 10*24*3600 )) # look back ten days in time, trying to catch even re-runs of older jobs
