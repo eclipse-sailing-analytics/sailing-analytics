@@ -210,7 +210,6 @@ which produces a tarball under ``dist/{release-name}-{timestamp}/{release-name}-
 
 Run the ``buildAndUpdateProduct.sh`` without any arguments to see the sub-commands and options available.
 
-
 ## Downloading, Installing and Running an Official Release
 
 You need to have Java 8 installed. Get one from, e.g., [here](https://tools.eu1.hana.ondemand.com/#cloud). Either ensure that this JVM's ``java`` executable in on the ``PATH`` or set ``JAVA_HOME`` appropriately.
