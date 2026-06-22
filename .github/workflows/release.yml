@@ -216,27 +216,21 @@ jobs:
           asset_path: ./dist/${{ env.SIMPLE_VERSION_INFO }}/release-notes.txt
           asset_name: release-notes.txt
           asset_content_type: text/plain
-      - name: Trigger Hudson job
+      - name: Trigger Jenkins job
         env:
-          HUDSON_JOB_USERNAME: ${{ vars.HUDSON_JOB_USERNAME }}
-          HUDSON_JOB_PASSWORD: ${{ secrets.HUDSON_JOB_PASSWORD }}
-          HUDSON_JOB_TOKEN: ${{ secrets.HUDSON_JOB_TOKEN }}
-        if: ${{ always() && env.HUDSON_JOB_USERNAME != '' && env.HUDSON_JOB_PASSWORD != '' && env.HUDSON_JOB_TOKEN != '' }}
+          JENKINS_JOB_USERNAME: ${{ vars.JENKINS_JOB_USERNAME }}
+          JENKINS_JOB_PASSWORD: ${{ secrets.JENKINS_JOB_PASSWORD }}
+          JENKINS_JOB_TOKEN: ${{ secrets.JENKINS_JOB_TOKEN }}
+        if: ${{ always() && env.JENKINS_JOB_USERNAME != '' && env.JENKINS_JOB_PASSWORD != '' && env.JENKINS_JOB_TOKEN != '' }}
         shell: bash
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            if [ "${{ github.event.inputs.skip_tests }}" = "true" ]; then
-              JOB=SAPSailingAnalytics-master-fasttrack-no-tests
-            else
-              JOB=SAPSailingAnalytics-master
-            fi
-          elif [[ "${{ github.ref }}" =~ refs/heads/releases/.* ]]; then
+          if [[ "${{ github.ref }}" =~ refs/heads/releases/.* ]]; then
             JOB=$( echo "${{ github.ref }}" | sed -e 's/^refs\/heads\/releases\///' )
           else
             JOB=$( echo "${{ github.ref }}" | sed -e 's/^refs\/heads\///' )
           fi
-          echo "Identified Hudson job: ${JOB}"
-          curl -u "${{ vars.HUDSON_JOB_USERNAME }}:${{ secrets.HUDSON_JOB_PASSWORD}}" https://hudson.sapsailing.com/job/${JOB}/build?token=${{ secrets.HUDSON_JOB_TOKEN }}
+          echo "Identified Jenkins job: ${JOB}"
+          curl -u "${{ vars.JENKINS_JOB_USERNAME }}:${{ secrets.JENKINS_JOB_PASSWORD}}" https://ci.eclipse.org/sailing-analytics/job/${JOB}/build?token=${{ secrets.JENKINS_JOB_TOKEN }}
 
   build-gate:
     permissions: {}
