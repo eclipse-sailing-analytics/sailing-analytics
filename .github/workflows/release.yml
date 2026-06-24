@@ -3,7 +3,7 @@ on:
   push:
     paths-ignore:
       - 'wiki/**'
-      - '.github/workflows/*'
+      # TEMPORARILY REMOVED during CI optimization work - add back '.github/workflows/*' when done
       - '**/*.md'
       - 'README.md'
       - 'docs/**'
