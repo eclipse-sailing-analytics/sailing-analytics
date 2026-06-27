@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 import java.util.logging.Level;
@@ -76,11 +77,13 @@ public class ScreenShotRule implements TestExecutionExceptionHandler {
                         final File destinationDir = new File(screenshotFolder, context.getRequiredTestClass().getName());
                         destinationDir.mkdirs();
                         final File destination = new File(destinationDir, filename + SCREENSHOT_FILE_EXTENSION); //$NON-NLS-1$
+                        final Path workspace = Paths.get(System.getProperty("user.dir")).toAbsolutePath().normalize();
+                        final Path absoluteFile = destination.getCanonicalFile().toPath().toAbsolutePath().normalize();
+                        final Path relativePath = workspace.relativize(absoluteFile);
                         final Path path = destination.toPath();
                         Files.copy(source, path, StandardCopyOption.REPLACE_EXISTING);
                         // ATTENTION: Do not remove this line because it is needed for the JUnit Attachment Plugin!
-                        System.out.println(String.format(ATTACHMENT_FORMAT, destination.getCanonicalFile().toURI()));
-                    } catch (IOException exception) {
+                        System.out.println(String.format(ATTACHMENT_FORMAT, relativePath.toString().replace("\\", "/")));                    } catch (IOException exception) {
                         throw new RuntimeException(exception);
                     }
                 } catch (Exception e) {
