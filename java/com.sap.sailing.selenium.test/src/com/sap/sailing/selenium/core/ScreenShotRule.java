@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -52,7 +53,7 @@ public class ScreenShotRule implements TestExecutionExceptionHandler {
     private void captureScreenshots(ExtensionContext context) {
         final TestEnvironment environment;
         if (context.getRequiredTestInstance() instanceof AbstractSeleniumTest) {
-            AbstractSeleniumTest testInstance = (AbstractSeleniumTest) context.getRequiredTestInstance();
+            final AbstractSeleniumTest testInstance = (AbstractSeleniumTest) context.getRequiredTestInstance();
             environment = testInstance.getEnvironment();
         } else {
             throw new IllegalStateException("The test instance must be of type AbstractSeleniumTest to use the ScreenShotRule.");
@@ -74,6 +75,7 @@ public class ScreenShotRule implements TestExecutionExceptionHandler {
                     final File destinationDir = new File(screenshotFolder, context.getRequiredTestClass().getName());
                     destinationDir.mkdirs();
                     final File destination = new File(destinationDir, filename + SCREENSHOT_FILE_EXTENSION);
+                    Files.copy(source, destination.toPath(), StandardCopyOption.REPLACE_EXISTING);
                     // Absolute path to the screenshot file
                     final Path absoluteFile = destination.toPath().toAbsolutePath().normalize();
                     // Jenkins JUnit Attachments Plugin resolves [[ATTACHMENT|<path>]] markers against
