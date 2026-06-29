@@ -40,7 +40,6 @@ public class TestConnectorsResultImportUrls extends AbstractSeleniumTest {
         resultImportUrlsPanel.selectUrlProviderByLabel(TEST_URL_PROVIDER_LABEL);
         // add
         resultImportUrlsPanel.addUrl(TEST_URL);
-        Thread.sleep(1000); // give event loop time to render table
         resultImportUrlsPanel.removeWithInlineButton(TEST_URL);
     }
 }
