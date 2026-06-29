@@ -35,11 +35,12 @@ public class TestConnectorsResultImportUrls extends AbstractSeleniumTest {
     }
 
     @SeleniumTestCase
-    public void testUrlInlineDeletion() {
+    public void testUrlInlineDeletion() throws InterruptedException {
         final ResultImportUrlsPanelPO resultImportUrlsPanel = goToResultImportUrlsPanel();
         resultImportUrlsPanel.selectUrlProviderByLabel(TEST_URL_PROVIDER_LABEL);
         // add
         resultImportUrlsPanel.addUrl(TEST_URL);
+        Thread.sleep(1000); // give event loop time to render table
         resultImportUrlsPanel.removeWithInlineButton(TEST_URL);
     }
 }
