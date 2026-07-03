@@ -2,13 +2,16 @@ package com.sap.sse.gwt.adminconsole;
 
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
+import com.google.gwt.cell.client.SafeHtmlCell;
 import com.google.gwt.core.client.GWT;
-import com.google.gwt.event.dom.client.ClickEvent;
-import com.google.gwt.event.dom.client.ClickHandler;
+import com.google.gwt.safehtml.shared.SafeHtml;
+import com.google.gwt.safehtml.shared.SafeHtmlBuilder;
+import com.google.gwt.user.cellview.client.Column;
+import com.google.gwt.user.client.Window;
 import com.google.gwt.user.client.rpc.AsyncCallback;
 import com.google.gwt.user.client.ui.Button;
 import com.google.gwt.user.client.ui.CaptionPanel;
@@ -27,7 +30,10 @@ import com.sap.sse.gwt.client.celltable.ActionsColumn;
 import com.sap.sse.gwt.client.celltable.EntityIdentityComparator;
 import com.sap.sse.gwt.client.celltable.RefreshableMultiSelectionModel;
 import com.sap.sse.gwt.client.celltable.TableWrapper;
+import com.sap.sse.gwt.client.celltable.TableWrapperWithFilter;
 import com.sap.sse.gwt.client.controls.IntegerBox;
+import com.sap.sse.gwt.client.controls.busyindicator.BusyIndicator;
+import com.sap.sse.gwt.client.controls.busyindicator.SimpleBusyIndicator;
 import com.sap.sse.gwt.client.dialog.DataEntryDialog;
 import com.sap.sse.gwt.client.dialog.DataEntryDialog.DialogCallback;
 import com.sap.sse.gwt.client.dialog.DataEntryDialog.Validator;
@@ -58,6 +64,7 @@ public class ReplicationPanel extends FlowPanel {
     private final StringMessages stringMessages;
     private final Button addButton;
     private final Button stopReplicationButton;
+    private final BusyIndicator progressIndicator;
     
     private static class ReplicationData {
         private final String messagingHost;
@@ -124,6 +131,7 @@ public class ReplicationPanel extends FlowPanel {
         this.replicationServiceAsync = replicationService;
         this.stringMessages = stringMessages;
         this.errorReporter = errorReporter;
+        this.progressIndicator = new SimpleBusyIndicator();
         this.replicableIdsAsStringThatShallLeadToWarningAboutInstanceBeingReplica = new HashSet<>();
         replicationService.getReplicableIdsAsStringThatShallLeadToWarningAboutInstanceBeingReplica(new MarkedAsyncCallback<>(new AsyncCallback<String[]>() {
             @Override
@@ -138,25 +146,26 @@ public class ReplicationPanel extends FlowPanel {
                 }
             }
         }));
-        final Button refreshButton = new Button(stringMessages.refresh());
-        refreshButton.addClickHandler(new ClickHandler() {
-            @Override
-            public void onClick(ClickEvent event) {
-                updateReplicaList();
-            }
-        });
-        add(refreshButton);
         // --- Replicas (master side) ---
         final CaptionPanel mastergroup = new CaptionPanel(stringMessages.explainReplicasRegistered());
+        mastergroup.setWidth("100%");
         final VerticalPanel masterpanel = new VerticalPanel();
         final AdminConsoleTableResources tableResources = GWT.create(AdminConsoleTableResources.class);
         replicasTable = new ReplicaTableWrapper(tableResources, userService, stringMessages, errorReporter);
+        replicasTable.asWidget().setWidth("100%");
+        // Keep the default table-layout: auto so each column claims its content's preferred width.
+        // Only the additional-information column is made shrinkable (via CSS in
+        // AdminConsoleTableResources), so when the container narrows that column shrinks and wraps
+        // first while date/numeric columns retain their full content width.
+        replicasTable.getTable().setWidth("100%");
         replicaSelectionModel = replicasTable.getSelectionModel();
         final AccessControlledButtonPanel masterPanelButtons = new AccessControlledButtonPanel(userService, SecuredSecurityTypes.SERVER);
+        masterPanelButtons.addUnsecuredAction(stringMessages.refresh(), this::updateReplicaList);
         masterPanelButtons.addCountingAction(stringMessages.dropReplicas(),
                 replicaSelectionModel, () -> userService.hasServerPermission(ServerActions.REPLICATE),
                 this::dropSelectedReplicas);
         masterpanel.add(replicasTable.asWidget());
+        masterpanel.add(progressIndicator);
         masterpanel.add(masterPanelButtons);
         mastergroup.add(masterpanel);
         add(mastergroup);
@@ -200,11 +209,11 @@ public class ReplicationPanel extends FlowPanel {
      * by the base class.
      */
     private class ReplicaTableWrapper
-            extends TableWrapper<ReplicaDTO, RefreshableMultiSelectionModel<ReplicaDTO>, StringMessages, AdminConsoleTableResources> {
+            extends TableWrapperWithFilter<ReplicaDTO, RefreshableMultiSelectionModel<ReplicaDTO>, StringMessages, AdminConsoleTableResources> {
         ReplicaTableWrapper(final AdminConsoleTableResources tableResources, final UserService userService,
                 final StringMessages stringMessages, final ErrorReporter errorReporter) {
             super(stringMessages, errorReporter, /* multiSelection */ true, /* enablePager */ false,
-                    new EntityIdentityComparator<ReplicaDTO>() {
+                    Optional.of(new EntityIdentityComparator<ReplicaDTO>() {
                         @Override
                         public boolean representSameEntity(final ReplicaDTO r1, final ReplicaDTO r2) {
                             return r1.getIdentifier().equals(r2.getIdentifier());
@@ -213,20 +222,36 @@ public class ReplicationPanel extends FlowPanel {
                         public int hashCode(final ReplicaDTO t) {
                             return t.getIdentifier().hashCode();
                         }
-                    }, tableResources);
-            addColumn(ReplicaDTO::getHostname, stringMessages.replicaColumnIp(),
-                    (r1, r2) -> r1.getHostname().compareTo(r2.getHostname()));
-            addColumn(ReplicaDTO::getIdentifier, stringMessages.replicaColumnId(),
-                    (r1, r2) -> r1.getIdentifier().compareTo(r2.getIdentifier()));
+                    }), tableResources,
+                    /* updatePermissionFilterForCheckbox */ Optional.of(r->userService.hasServerPermission(ServerActions.REPLICATE)),
+                    /* filterLabel */ Optional.of(stringMessages.filterBy()),
+                    /* filterCheckboxLabel */ stringMessages.hideElementsWithoutUpdateRights());
+            addColumn(ReplicaDTO::getHostname, stringMessages.replicaColumnIp());
+            addColumn(ReplicaDTO::getIdentifier, stringMessages.replicaColumnId());
+            final Column<ReplicaDTO, SafeHtml> additionalInformationColumn = new Column<ReplicaDTO, SafeHtml>(new SafeHtmlCell()) {
+                @Override
+                public SafeHtml getValue(ReplicaDTO replica) {
+                    final SafeHtmlBuilder builder = new SafeHtmlBuilder();
+                    builder.appendHtmlConstant("<p>");
+                    builder.appendHtmlConstant(replica.getAdditionalInformation());
+                    builder.appendHtmlConstant("</p>");
+                    return builder.toSafeHtml();
+                }
+            };
+            // The default CellTable cell style applies white-space: nowrap to every cell, which
+            // gives the table an intrinsic min-width that prevents it from shrinking with the
+            // viewport. The cellTableWrapText class (defined in AdminConsoleTable.css) flips this
+            // single column to white-space: normal + overflow-wrap, so it becomes the one column
+            // that can absorb the slack by wrapping while every other column keeps its content
+            // width under the default table-layout: auto.
+            additionalInformationColumn.setCellStyleNames(tableResources.cellTableStyle().cellTableWrapText());
+            addColumn(additionalInformationColumn, stringMessages.additionalInformation());
             addColumn(r -> r.getRegistrationTime().toString(), stringMessages.replicaColumnRegistered(),
                     (r1, r2) -> r1.getRegistrationTime().compareTo(r2.getRegistrationTime()));
             addColumn(r -> String.valueOf(Math.round(r.getAverageNumberOfOperationsPerMessage())),
-                    stringMessages.replicaColumnOpsPerMsg(),
-                    (r1, r2) -> Double.compare(r1.getAverageNumberOfOperationsPerMessage(), r2.getAverageNumberOfOperationsPerMessage()));
-            addColumn(r -> String.valueOf(r.getNumberOfMessagesSent()), stringMessages.replicaColumnMessages(),
-                    (r1, r2) -> Long.compare(r1.getNumberOfMessagesSent(), r2.getNumberOfMessagesSent()));
-            addColumn(r -> String.valueOf(Math.round(r.getAverageMessageSizeInBytes())), stringMessages.replicaColumnAvgMsgSize(),
-                    (r1, r2) -> Double.compare(r1.getAverageMessageSizeInBytes(), r2.getAverageMessageSizeInBytes()));
+                    stringMessages.replicaColumnOpsPerMsg());
+            addColumn(r -> String.valueOf(r.getNumberOfMessagesSent()), stringMessages.replicaColumnMessages());
+            addColumn(r -> String.valueOf(Math.round(r.getAverageMessageSizeInBytes())), stringMessages.replicaColumnAvgMsgSize());
             addColumn(r -> r.getNumberOfBytesSent() + "B (" + (r.getNumberOfBytesSent() / 1024 / 1024) + "MB)",
                     stringMessages.replicaColumnTotalSize(),
                     (r1, r2) -> Long.compare(r1.getNumberOfBytesSent(), r2.getNumberOfBytesSent()));
@@ -241,7 +266,13 @@ public class ReplicationPanel extends FlowPanel {
             actionsColumn.addAction(ReplicaImagesBarCell.ACTION_DROP, replica -> dropSingleReplica(replica));
             addColumn(actionsColumn, stringMessages.additionalInformation());
         }
+
+        @Override
+        protected Iterable<String> getSearchableStrings(ReplicaDTO t) {
+            return Arrays.asList(t.getAdditionalInformation(), t.getHostname(), t.getIdentifier());
+        }
     }
+    
     /**
      * Populates {@link #replicaDetailPanel} with the details of the given replica and makes it visible.
      * Called when exactly one row is selected in {@link #replicasTable}. The {@link #replicaDetailGrid}
@@ -274,6 +305,7 @@ public class ReplicationPanel extends FlowPanel {
         replicaDetailGrid.setWidget(row, 1, new Label(replica.getNumberOfBytesSent() + "B (" + (replica.getNumberOfBytesSent() / 1024 / 1024) + "MB)"));
         replicaDetailPanel.setVisible(true);
     }
+    
     /**
      * Drops the replication connection for every replica currently selected in {@link #replicasTable}.
      */
@@ -284,23 +316,27 @@ public class ReplicationPanel extends FlowPanel {
             dropSingleReplica(replica);
         }
     }
+    
     /**
      * Calls {@link RemoteReplicationServiceAsync#stopSingleReplicaInstance} for the given replica and
      * refreshes the list on both success and failure.
      */
     private void dropSingleReplica(final ReplicaDTO replica) {
-        replicationServiceAsync.stopSingleReplicaInstance(replica.getIdentifier(), new AsyncCallback<Void>() {
-            @Override
-            public void onFailure(Throwable caught) {
-                errorReporter.reportError(caught.getMessage());
-                updateReplicaList();
-            }
-            @Override
-            public void onSuccess(Void result) {
-                updateReplicaList();
-            }
-        });
+        if (Window.confirm(stringMessages.reallyDropReplica(replica.getAdditionalInformation(), replica.getName()))) {
+            replicationServiceAsync.stopSingleReplicaInstance(replica.getIdentifier(), new AsyncCallback<Void>() {
+                @Override
+                public void onFailure(Throwable caught) {
+                    errorReporter.reportError(caught.getMessage());
+                    updateReplicaList();
+                }
+                @Override
+                public void onSuccess(Void result) {
+                    updateReplicaList();
+                }
+            });
+        }
     }
+    
     private void stopReplication() {
         stopReplicationButton.setEnabled(false);
         replicationServiceAsync.stopReplicatingFromMaster(new AsyncCallback<Void>() {
@@ -317,6 +353,7 @@ public class ReplicationPanel extends FlowPanel {
             }
         });
     }
+    
     private void addReplication() {
         new AddReplicationDialog(new Validator<ReplicationData>() {
             @Override
@@ -358,14 +395,12 @@ public class ReplicationPanel extends FlowPanel {
     }
 
     public void updateReplicaList() {
+        progressIndicator.setBusy(true);
         replicationServiceAsync.getReplicaInfo(new AsyncCallback<ReplicationStateDTO>() {
             @Override
             public void onSuccess(ReplicationStateDTO replicas) {
-                final List<ReplicaDTO> replicaList = replicasTable.getDataProvider().getList();
-                replicaList.clear();
-                for (final ReplicaDTO replica : replicas.getReplicas()) {
-                    replicaList.add(replica);
-                }
+                progressIndicator.setBusy(false);
+                replicasTable.getFilterPanel().updateAll(replicas.getReplicas());
                 while (registeredMasters.getRowCount() > 0) {
                     registeredMasters.removeRow(0);
                 }
@@ -399,6 +434,7 @@ public class ReplicationPanel extends FlowPanel {
             }
             @Override
             public void onFailure(Throwable e) {
+                progressIndicator.setBusy(false);
                 errorReporter.reportError(stringMessages.errorFetchingReplicaData(e.getMessage()));
             }
         });
