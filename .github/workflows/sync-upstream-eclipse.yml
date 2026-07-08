@@ -7,8 +7,10 @@
 # rule on main is satisfied by a maintainer's own approval.
 name: Merge upstream eclipse-sailing-analytics/sailing-analytics main into eclipse-main
 on:
-  schedule:
-    - cron: "37 5 * * *"   # daily at 05:37 UTC
+  # Don't run this in upstream; uncomment in a downstream repo to keep merging upstream
+  # into your downstream's eclipse-main branch on a daily basis:
+  #schedule:
+  #  - cron: "37 5 * * *"   # daily at 05:37 UTC
   workflow_dispatch: {}
 jobs:
   merge-upstream-main:
