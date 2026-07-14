@@ -1,7 +1,7 @@
 name: build-aws-sdk-p2
 on:
   push:
-    branches: [main, bug6269]
+    branches: [main]
     paths:
       - 'java/com.amazon.aws.aws-java-api/**'
       - 'java/com.amazon.aws.aws-java-api.updatesite/**'
