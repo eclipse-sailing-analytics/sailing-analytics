@@ -1,38 +1,19 @@
-name: build-aws-sdk-p2
+name: build-sailing-base-p2
 on:
   push:
     branches: [main, bug6269]
     paths:
-      - 'java/com.amazon.aws.aws-java-api/**'
-      - 'java/com.amazon.aws.aws-java-api.updatesite/**'
+      - 'java/com.sap.sailing.targetplatform.base/**'
   workflow_dispatch: {}
 
 jobs:
-  build-aws-sdk-p2:
+  build-sailing-base-p2:
     permissions:
       contents: write
       checks: write
       actions: read
     runs-on: 'ubuntu-latest'
     steps:
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@v1.3.1
-        with:
-          # this might remove tools that are actually needed,
-          # if set to "true" but frees about 6 GB
-          tool-cache: false
-          # all of these default to true, but feel free to set to
-          # "false" if necessary for your workflow
-          android: false
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: false
-          swap-storage: true
-      - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
-        with:
-          comment_on_pr: false
       - name: Check out the repository to the runner
         uses: actions/checkout@v4
         with:
@@ -55,8 +36,10 @@ jobs:
           JAVA8_HOME: ${{env.JAVA_HOME_8_X64}}
           JAVA17_HOME: ${{env.JAVA_HOME_17_X64}}
         run: |
-            ./java/com.amazon.aws.aws-java-api/createLocalAwsApiP2Repository.sh 2>&1 | tee build.log
-            echo "VERSION=$( cat java/com.amazon.aws.aws-java-api/build.gradle | grep "implementation platform('software.amazon.awssdk:bom:[0-9.]*')" | sed -e 's/^\s*implementation platform('\''software\.amazon\.awssdk:bom:\([0-9.]*\)'\'')/\1/' )" >>${GITHUB_ENV}
+            configuration/install-gwt-from-fork-releases https://github.com/eclipse-sailing-analytics/gwt-forward-serialization-rpc https://github.com/eclipse-sailing-analytics/gwt-maven-plugin-forward-serialization-rpc 2.12.4 .
+            cd java/com.sap.sailing.targetplatform.base
+            mvn clean compile 2>&1 | tee build.log
+            echo "BUILD_TIME=$(date -u +"%Y%m%dT%H%M%S")" >> "$GITHUB_ENV"
       - name: Upload build log
         uses: actions/upload-artifact@v4
         if: always()
@@ -68,7 +51,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
             name: aws-sdk-p2
-            path: java/com.amazon.aws.aws-java-api.updatesite/target/repository/**/*
+            path: java/com.sap.sailing.targetplatform.base/target/repository/**/*
             retention-days: 90
       - name: SCP artifacts to download.eclipse.org to version-specific folder
         uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
@@ -77,8 +60,8 @@ jobs:
           username: ${{ secrets.SCP_USERNAME }}
           key: ${{ secrets.SCP_KEY }}
           passphrase: ${{ secrets.SCP_PASSPHRASE }}
-          source: "java/com.amazon.aws.aws-java-api.updatesite/target/repository"
-          target: "/home/data/httpd/download.eclipse.org/sailing-analytics/p2/aws-sdk-${{env.VERSION}}"
+          source: "java/com.sap.sailing.targetplatform.base/target/repository"
+          target: "/home/data/httpd/download.eclipse.org/sailing-analytics/p2/sailing-${{env.BUILD_TIME}}"
           strip_components: 4
           rm: true
       - name: SCP artifacts to download.eclipse.org to default folder
@@ -88,7 +71,7 @@ jobs:
           username: ${{ secrets.SCP_USERNAME }}
           key: ${{ secrets.SCP_KEY }}
           passphrase: ${{ secrets.SCP_PASSPHRASE }}
-          source: "java/com.amazon.aws.aws-java-api.updatesite/target/repository"
-          target: "/home/data/httpd/download.eclipse.org/sailing-analytics/p2/aws-sdk"
+          source: "java/com.sap.sailing.targetplatform.base/target/repository"
+          target: "/home/data/httpd/download.eclipse.org/sailing-analytics/p2/sailing"
           strip_components: 4
           rm: true
