@@ -68,7 +68,7 @@ public class Footer extends Composite {
             supportAnchor.getStyle().setDisplay(Display.NONE);
             privacyAnchorLink.getStyle().setDisplay(Display.NONE);
             jobsAnchor.getStyle().setDisplay(Display.NONE);
-            sourceCodeAnchor.setHref("https://github.com/SAP/sailing-analytics");
+            sourceCodeAnchor.setHref("https://sailing-analytics.eclipse.dev/");
         } else {
             hideIfBlank(copyrightDiv, cfg.getFooterCopyright());
             setHrefOrHide(privacyAnchorLink, cfg.getFooterPrivacyLink());
