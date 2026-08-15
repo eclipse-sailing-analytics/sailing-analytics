@@ -265,8 +265,8 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         dawTable.setVisible(false); // make visible if and only if a single device is selected in the devices table
         // wind chart
         windChart = new IgtimiDeviceWindChart();
-        windChart.setWidth("400px");
-        windChart.setHeight("1000px");
+        windChart.setWidth("350px");
+        windChart.setHeight("800px");
         final CaptionPanel windChartCaptionPanel = new CaptionPanel(stringMessages.windChart());
         windChartCaptionPanel.add(windChart);
         windChartCaptionPanel.setVisible(false);

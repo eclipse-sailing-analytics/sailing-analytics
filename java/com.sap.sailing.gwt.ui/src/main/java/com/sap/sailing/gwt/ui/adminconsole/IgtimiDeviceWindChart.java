@@ -13,7 +13,6 @@ import org.moxieapps.gwt.highcharts.client.PlotLine;
 import org.moxieapps.gwt.highcharts.client.Point;
 import org.moxieapps.gwt.highcharts.client.Series;
 import org.moxieapps.gwt.highcharts.client.labels.AxisLabelsData;
-import org.moxieapps.gwt.highcharts.client.labels.AxisLabelsFormatter;
 import org.moxieapps.gwt.highcharts.client.labels.XAxisLabels;
 import org.moxieapps.gwt.highcharts.client.labels.YAxisLabels;
 import org.moxieapps.gwt.highcharts.client.plotOptions.LinePlotOptions;

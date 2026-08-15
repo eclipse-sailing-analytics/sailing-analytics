@@ -257,7 +257,6 @@ import com.sap.sailing.domain.igtimiadapter.Device;
 import com.sap.sailing.domain.igtimiadapter.FixFactory;
 import com.sap.sailing.domain.igtimiadapter.IgtimiConnection;
 import com.sap.sailing.domain.igtimiadapter.IgtimiConnectionFactory;
-import com.sap.sailing.domain.igtimiadapter.IgtimiWindListener;
 import com.sap.sailing.domain.igtimiadapter.datatypes.BatteryLevel;
 import com.sap.sailing.domain.igtimiadapter.datatypes.Fix;
 import com.sap.sailing.domain.igtimiadapter.datatypes.GpsLatLong;
