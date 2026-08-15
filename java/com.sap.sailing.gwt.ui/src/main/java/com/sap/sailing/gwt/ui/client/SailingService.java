@@ -148,6 +148,9 @@ public interface SailingService extends RemoteService, RemoteReplicationService 
             long resolutionInMilliseconds, Collection<String> windSourceTypeNames, boolean onlyUpToNewestEvent)
             throws UnauthorizedException;
 
+    WindInfoForRaceDTO getWindInfoForIgtimiDevice(String serialNumber, Date from, Date to)
+            throws UnauthorizedException;
+
     boolean getPolarResults(RegattaAndRaceIdentifier raceIdentifier) throws UnauthorizedException;
 
     BearingWithConfidenceDTO getManeuverAngle(BoatClassDTO boatClass, ManeuverType maneuverType, Speed windSpeed)

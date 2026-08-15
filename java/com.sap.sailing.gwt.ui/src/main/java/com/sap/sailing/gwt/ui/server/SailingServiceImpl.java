@@ -202,6 +202,7 @@ import com.sap.sailing.domain.common.dto.SeriesCreationParametersDTO;
 import com.sap.sailing.domain.common.dto.TagDTO;
 import com.sap.sailing.domain.common.dto.TrackedRaceDTO;
 import com.sap.sailing.domain.common.impl.WindSourceImpl;
+import com.sap.sailing.domain.common.impl.WindSourceWithAdditionalID;
 import com.sap.sailing.domain.common.media.MediaTrack;
 import com.sap.sailing.domain.common.orc.ImpliedWindSource;
 import com.sap.sailing.domain.common.orc.ORCCertificate;
@@ -248,14 +249,20 @@ import com.sap.sailing.domain.coursetemplate.TrackingDeviceBasedPositioning;
 import com.sap.sailing.domain.coursetemplate.WaypointTemplate;
 import com.sap.sailing.domain.coursetemplate.WaypointWithMarkConfiguration;
 import com.sap.sailing.domain.coursetemplate.impl.CommonMarkPropertiesImpl;
+import com.igtimi.IgtimiData.DataPoint.DataCase;
+import com.igtimi.IgtimiStream.Msg;
 import com.sap.sailing.domain.coursetemplate.impl.WaypointTemplateImpl;
 import com.sap.sailing.domain.igtimiadapter.DataAccessWindow;
 import com.sap.sailing.domain.igtimiadapter.Device;
+import com.sap.sailing.domain.igtimiadapter.FixFactory;
 import com.sap.sailing.domain.igtimiadapter.IgtimiConnection;
 import com.sap.sailing.domain.igtimiadapter.IgtimiConnectionFactory;
+import com.sap.sailing.domain.igtimiadapter.IgtimiWindListener;
 import com.sap.sailing.domain.igtimiadapter.datatypes.BatteryLevel;
+import com.sap.sailing.domain.igtimiadapter.datatypes.Fix;
 import com.sap.sailing.domain.igtimiadapter.datatypes.GpsLatLong;
 import com.sap.sailing.domain.igtimiadapter.server.riot.RiotServer;
+import com.sap.sailing.domain.igtimiadapter.shared.IgtimiWindReceiver;
 import com.sap.sailing.domain.leaderboard.FlexibleLeaderboard;
 import com.sap.sailing.domain.leaderboard.Leaderboard;
 import com.sap.sailing.domain.leaderboard.LeaderboardGroup;
@@ -1585,12 +1592,12 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
         TrackedRace trackedRace = getExistingTrackedRace(raceIdentifier);
         WindInfoForRaceDTO result = null;
         if (trackedRace != null) {
-            TimePoint fromTimePoint = from == null ?
+            final TimePoint fromTimePoint = from == null ?
                     trackedRace.getStartOfTracking() == null ?
                             trackedRace.getStartOfRace() :
                             trackedRace.getStartOfTracking() :
                     new MillisecondsTimePoint(from);
-            TimePoint toTimePoint = to == null ?
+            final TimePoint toTimePoint = to == null ?
                     trackedRace.getEndOfRace() == null ?
                             trackedRace.getEndOfTracking() == null ?
                                     MillisecondsTimePoint.now().minus(trackedRace.getDelayToLiveInMillis()) :
@@ -1598,12 +1605,91 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
                             trackedRace.getEndOfRace() :
                     new MillisecondsTimePoint(to);
             if (fromTimePoint != null && toTimePoint != null) {
-                int numberOfFixes = Math.min(SailingServiceConstants.MAX_NUMBER_OF_WIND_FIXES_TO_DELIVER_IN_ONE_CALL,
+                final int numberOfFixes = Math.min(SailingServiceConstants.MAX_NUMBER_OF_WIND_FIXES_TO_DELIVER_IN_ONE_CALL,
                         (int) ((toTimePoint.asMillis() - fromTimePoint.asMillis())/resolutionInMilliseconds));
                 result = getAveragedWindInfo(fromTimePoint, resolutionInMilliseconds, numberOfFixes,
                         windSourceTypeNames, trackedRace, onlyUpToNewestEvent, /* includeCombinedWindForAllLegMiddles */ false);
             }
+        } else if (from != null && to != null && windSourceTypeNames != null) {
+            result = getAveragedWindInfoFromPersistence(raceIdentifier, from, to, resolutionInMilliseconds, windSourceTypeNames);
         }
+        return result;
+    }
+
+    private WindInfoForRaceDTO getAveragedWindInfoFromPersistence(final RegattaAndRaceIdentifier raceIdentifier,
+            final Date from, final Date to, final long resolutionInMilliseconds,
+            final Collection<String> windSourceTypeNames) {
+        final Regatta regatta = getService().getRegattaByName(raceIdentifier.getRegattaName());
+        if (regatta == null) {
+            return null;
+        }
+        getSecurityService().checkCurrentUserReadPermission(regatta);
+        final RaceDefinition race = regatta.getRaceByName(raceIdentifier.getRaceName());
+        if (race == null) {
+            return null;
+        }
+        final Map<? extends WindSource, ? extends WindTrack> windTracks =
+                domainObjectFactory.loadWindTracks(raceIdentifier.getRegattaName(), race, resolutionInMilliseconds);
+        logger.info("getAveragedWindInfoFromPersistence: loaded " + windTracks.size() + " wind tracks: " + windTracks.keySet());
+        final WindInfoForRaceDTO result = new WindInfoForRaceDTO();
+        result.windSourcesToExclude = new ArrayList<>();
+        result.windTrackInfoByWindSource = new HashMap<>();
+        final TimePoint fromTP = new MillisecondsTimePoint(from);
+        final TimePoint toTP = new MillisecondsTimePoint(to);
+        final int numberOfFixes = Math.min(SailingServiceConstants.MAX_NUMBER_OF_WIND_FIXES_TO_DELIVER_IN_ONE_CALL,
+                (int) ((toTP.asMillis() - fromTP.asMillis()) / resolutionInMilliseconds));
+        for (final Map.Entry<? extends WindSource, ? extends WindTrack> entry : windTracks.entrySet()) {
+            final WindSource windSource = entry.getKey();
+            if (windSourceTypeNames.contains(windSource.getType().name())) {
+                final WindTrackInfoDTO trackInfo = new WindTrackInfoDTO();
+                trackInfo.windFixes = new ArrayList<>();
+                trackInfo.dampeningIntervalInMilliseconds = entry.getValue().getMillisecondsOverWhichToAverageWind();
+                TimePoint tp = fromTP;
+                for (int i = 0; i < numberOfFixes; i++) {
+                    final WindWithConfidence<com.sap.sse.common.Util.Pair<Position, TimePoint>> w =
+                            entry.getValue().getAveragedWindWithConfidence(null, tp);
+                    if (w != null) {
+                        final WindDTO dto = createWindDTOFromAlreadyAveraged(w.getObject(), tp);
+                        dto.confidence = w.getConfidence();
+                        trackInfo.windFixes.add(dto);
+                    }
+                    tp = new MillisecondsTimePoint(tp.asMillis() + resolutionInMilliseconds);
+                }
+                result.windTrackInfoByWindSource.put(windSource, trackInfo);
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public WindInfoForRaceDTO getWindInfoForIgtimiDevice(final String serialNumber, final Date from, final Date to) {
+        final Device device = getRiotServer().getDeviceBySerialNumber(serialNumber);
+        if (device != null) {
+            getSecurityService().checkCurrentUserReadPermission(device);
+        }
+        final List<WindDTO> windFixes = new ArrayList<>();
+        final IgtimiWindReceiver windReceiver = new IgtimiWindReceiver(/* no declination correction */ null);
+        windReceiver.addListener((final com.sap.sailing.domain.common.Wind wind, final Set<Fix> fixesUsed, final String deviceSerialNumber) ->
+            windFixes.add(createWindDTOFromAlreadyAveraged(wind, wind.getTimePoint())));
+        final Set<DataCase> dataCases = new HashSet<>();
+        for (final com.sap.sailing.domain.igtimiadapter.datatypes.Type type : windReceiver.getFixTypes()) {
+            dataCases.add(DataCase.forNumber(type.getCode()));
+        }
+        final MultiTimeRange timeRange = MultiTimeRange.of(TimeRange.create(new MillisecondsTimePoint(from), new MillisecondsTimePoint(to)));
+        try {
+            for (final Msg msg : getRiotServer().getMessages(serialNumber, timeRange, dataCases)) {
+                windReceiver.received(new FixFactory().createFixes(msg));
+            }
+        } catch (final IOException | org.json.simple.parser.ParseException e) {
+            throw new RuntimeException("Error reading Igtimi messages for device " + serialNumber, e);
+        }
+        final WindInfoForRaceDTO result = new WindInfoForRaceDTO();
+        final WindTrackInfoDTO trackInfo = new WindTrackInfoDTO();
+        trackInfo.windFixes = windFixes;
+        trackInfo.dampeningIntervalInMilliseconds = 0;
+        result.windTrackInfoByWindSource = new java.util.HashMap<>();
+        result.windTrackInfoByWindSource.put(new WindSourceWithAdditionalID(WindSourceType.EXPEDITION, serialNumber), trackInfo);
+        result.windSourcesToExclude = new ArrayList<>();
         return result;
     }
 

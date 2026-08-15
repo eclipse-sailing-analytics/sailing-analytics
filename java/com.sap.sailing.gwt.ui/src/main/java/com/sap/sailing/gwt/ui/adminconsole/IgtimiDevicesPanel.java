@@ -43,6 +43,8 @@ import com.google.gwt.user.client.ui.TextBox;
 import com.google.gwt.user.client.ui.VerticalPanel;
 import com.google.gwt.user.client.ui.Widget;
 import com.google.gwt.view.client.ListDataProvider;
+import com.sap.sailing.domain.common.RegattaNameAndRaceName;
+import com.sap.sailing.domain.common.WindSourceType;
 import com.sap.sailing.domain.common.security.SecuredDomainType;
 import com.sap.sailing.gwt.ui.adminconsole.places.AdminConsoleView.Presenter;
 import com.sap.sailing.gwt.ui.client.DataEntryDialogWithDateTimeBox;
@@ -50,6 +52,8 @@ import com.sap.sailing.gwt.ui.client.SailingServiceWriteAsync;
 import com.sap.sailing.gwt.ui.client.StringMessages;
 import com.sap.sailing.gwt.ui.shared.IgtimiDataAccessWindowWithSecurityDTO;
 import com.sap.sailing.gwt.ui.shared.IgtimiDeviceWithSecurityDTO;
+import com.sap.sailing.gwt.ui.shared.RaceTimesInfoDTO;
+import com.sap.sailing.gwt.ui.shared.WindInfoForRaceDTO;
 import com.sap.sse.common.Util;
 import com.sap.sse.common.Util.Pair;
 import com.sap.sse.gwt.adminconsole.AdminConsoleTableResources;
@@ -91,6 +95,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
     private final StringMessages stringMessages;
     private final SailingServiceWriteAsync sailingServiceWrite;
     private final ErrorReporter errorReporter;
+    private final IgtimiDeviceWindChart windChart;
     private final LabeledAbstractFilterablePanel<IgtimiDeviceWithSecurityDTO> filterDevicesPanel;
     private final RefreshableMultiSelectionModel<IgtimiDeviceWithSecurityDTO> refreshableDevicesSelectionModel;
     private final LabeledAbstractFilterablePanel<IgtimiDataAccessWindowWithSecurityDTO> filterDataAccessWindowPanel;
@@ -258,6 +263,34 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         final Button addDataAccessWindoweButton = dawButtonPanel.addCreateAction(stringMessages.addIgtimiDataAccessWindow(), () -> addDataAccessWindow());
         addDataAccessWindoweButton.ensureDebugId("addIgtimiDataAccessWindow");
         dawTable.setVisible(false); // make visible if and only if a single device is selected in the devices table
+        // wind chart
+        windChart = new IgtimiDeviceWindChart();
+        windChart.setWidth("400px");
+        windChart.setHeight("1000px");
+        final CaptionPanel windChartCaptionPanel = new CaptionPanel(stringMessages.windChart());
+        windChartCaptionPanel.add(windChart);
+        windChartCaptionPanel.setVisible(false);
+        add(windChartCaptionPanel);
+        final java.util.Set<String> shownDeviceSerialNumbers = new HashSet<>();
+        refreshableDevicesSelectionModel.addSelectionChangeHandler(e -> {
+            final java.util.Set<String> nowSelected = new HashSet<>();
+            for (final IgtimiDeviceWithSecurityDTO d : refreshableDevicesSelectionModel.getSelectedSet()) {
+                nowSelected.add(d.getSerialNumber());
+            }
+            for (final String serial : shownDeviceSerialNumbers) {
+                if (!nowSelected.contains(serial)) {
+                    windChart.removeDevice(serial);
+                }
+            }
+            for (final String serial : nowSelected) {
+                if (!shownDeviceSerialNumbers.contains(serial)) {
+                    loadWindChartForDevice(serial);
+                }
+            }
+            shownDeviceSerialNumbers.clear();
+            shownDeviceSerialNumbers.addAll(nowSelected);
+            windChartCaptionPanel.setVisible(!nowSelected.isEmpty());
+        });
     }
     
     private static class DevicesImagesBarCell extends DefaultActionsImagesBarCell {
@@ -499,6 +532,44 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         table.setSelectionModel(dawsSelectionCheckboxColumn.getSelectionModel(),
                 dawsSelectionCheckboxColumn.getSelectionManager());
         return table;
+    }
+
+    private void loadWindChartForDevice(final String serialNumber) {
+        final RegattaNameAndRaceName raceIdentifier =
+                new RegattaNameAndRaceName("505 Worlds 2014", "SAP 505 Worlds R6");
+        final java.util.List<String> windSourceTypeNames = new java.util.ArrayList<>();
+        windSourceTypeNames.add(WindSourceType.EXPEDITION.name());
+        sailingServiceWrite.getRaceTimesInfo(raceIdentifier, new AsyncCallback<RaceTimesInfoDTO>() {
+            @Override
+            public void onSuccess(final RaceTimesInfoDTO raceTimes) {
+                final Date from = raceTimes != null && raceTimes.startOfTracking != null
+                        ? raceTimes.startOfTracking
+                        : raceTimes != null && raceTimes.startOfRace != null ? raceTimes.startOfRace : new Date(1408183298000L);
+                final Date to = raceTimes != null && raceTimes.endOfTracking != null
+                        ? raceTimes.endOfTracking
+                        : raceTimes != null && raceTimes.endOfRace != null ? raceTimes.endOfRace : new Date(1408711820000L);
+                //cap to 10000 fixes at 10s 
+                final long maxWindowMs = 10000L * 10000L;
+                final Date effectiveTo = (to.getTime() - from.getTime()) > maxWindowMs
+                        ? new Date(from.getTime() + maxWindowMs) : to;
+                sailingServiceWrite.getAveragedWindInfo(raceIdentifier, from, effectiveTo,
+                        /* 10s resolution, same as WindChartSettings default */ 10000L, windSourceTypeNames, /* onlyUpToNewestEvent */ false,
+                        new AsyncCallback<WindInfoForRaceDTO>() {
+                    @Override
+                    public void onSuccess(final WindInfoForRaceDTO result) {
+                        windChart.showData(result, serialNumber);
+                    }
+                    @Override
+                    public void onFailure(final Throwable caught) {
+                        errorReporter.reportError(caught.getMessage());
+                    }
+                });
+            }
+            @Override
+            public void onFailure(final Throwable caught) {
+                errorReporter.reportError(caught.getMessage());
+            }
+        });
     }
 
     public void refreshDevices() {

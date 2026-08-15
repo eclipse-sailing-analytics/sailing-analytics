@@ -158,6 +158,9 @@ public interface SailingServiceAsync extends RemoteReplicationServiceAsync {
             long resolutionInMilliseconds, Collection<String> windSourceTypeNames, boolean onlyUpToNewestEvent,
             AsyncCallback<WindInfoForRaceDTO> callback);
 
+    void getWindInfoForIgtimiDevice(String serialNumber, Date from, Date to,
+            AsyncCallback<WindInfoForRaceDTO> callback);
+
     /**
      * @param onlyUpToNewestEvent
      *            if <code>true</code>, no wind data will be returned for time points later than
