@@ -37,7 +37,6 @@ import org.moxieapps.gwt.highcharts.client.labels.YAxisLabels;
 import org.moxieapps.gwt.highcharts.client.plotOptions.LinePlotOptions;
 import org.moxieapps.gwt.highcharts.client.plotOptions.Marker;
 
-import com.google.gwt.core.client.GWT;
 import com.google.gwt.i18n.client.DateTimeFormat;
 import com.google.gwt.i18n.client.NumberFormat;
 import com.google.gwt.text.client.DateTimeFormatRenderer;
@@ -56,10 +55,10 @@ import com.sap.sailing.gwt.ui.client.WindSourceTypeFormatter;
 import com.sap.sailing.gwt.ui.shared.WindDTO;
 import com.sap.sailing.gwt.ui.shared.WindInfoForRaceDTO;
 import com.sap.sailing.gwt.ui.shared.WindTrackInfoDTO;
-import com.sap.sse.common.Util;
 import com.sap.sse.common.Bearing;
 import com.sap.sse.common.DoublePair;
 import com.sap.sse.common.Speed;
+import com.sap.sse.common.Util;
 import com.sap.sse.common.impl.DegreeBearingImpl;
 import com.sap.sse.common.impl.KnotSpeedImpl;
 import com.sap.sse.common.scalablevalue.ScalableValue;
@@ -154,26 +153,28 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
                                     .setHoverStateLineWidth(LINE_WIDTH));
         chart.setStyleName(chartsCss.chartStyle());
         ChartUtil.useCheckboxesToShowAndHide(chart, this::updateStatPlotLines);
-        final NumberFormat numberFormat = NumberFormat.getFormat("0");
+        final NumberFormat numberFormat = NumberFormat.getFormat("0.0");
         chart.setToolTip(new ToolTip().setEnabled(true).setFormatter(new ToolTipFormatter() {
             @Override
             public String format(ToolTipData toolTipData) {
-                String seriesName = toolTipData.getSeriesName();
+                final String result;
+                final String seriesName = toolTipData.getSeriesName();
                 if (seriesName.equals(WindChart.this.stringMessages.time())) {
-                    return "<b>" + seriesName + ":</b> " + dateFormat.format(new Date(toolTipData.getXAsLong()))
+                    result = "<b>" + seriesName + ":</b> " + dateFormat.format(new Date(toolTipData.getXAsLong()))
                             + "<br/>(" + stringMessages.clickChartToSetTime() + ")";
                 } else if (seriesName.startsWith(stringMessages.fromDeg()+" ")) {
                     double value = toolTipData.getYAsDouble() % 360;
-                    return "<b>" + seriesName + (toolTipData.getPointName() != null ? " "+toolTipData.getPointName() : "")
+                    result = "<b>" + seriesName + (toolTipData.getPointName() != null ? " "+toolTipData.getPointName() : "")
                             + "</b><br/>" +  
                             dateFormat.format(new Date(toolTipData.getXAsLong())) + ": " +
                             numberFormat.format(value < 0 ? value + 360 : value) + stringMessages.degreesShort();
                 } else {
-                    return "<b>" + seriesName + (toolTipData.getPointName() != null ? " "+toolTipData.getPointName() : "")
+                    result = "<b>" + seriesName + (toolTipData.getPointName() != null ? " "+toolTipData.getPointName() : "")
                             + "</b><br/>" +  
                             dateFormat.format(new Date(toolTipData.getXAsLong())) + ": " +
                             numberFormat.format(toolTipData.getYAsDouble()) + stringMessages.knotsUnit();
                 }
+                return result;
             }
         }));
         
@@ -383,7 +384,6 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
      * existing points in the chart are left unchanged. Otherwise, the existing wind series are replaced.
      */
     public void updateChartSeries(WindInfoForRaceDTO result, boolean append) {
-        final NumberFormat numberFormat = NumberFormat.getFormat("0");
         Long newMinTimepoint = timeOfEarliestRequestInMillis;
         Long newMaxTimepoint = timeOfLatestRequestInMillis;
         for (final WindSource windSource: result.windTrackInfoByWindSource.keySet()) {
@@ -417,11 +417,6 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
                 if (!append || ((timeOfEarliestRequestInMillis == null || wind.requestTimepoint < timeOfEarliestRequestInMillis) || 
                     timeOfLatestRequestInMillis == null || wind.requestTimepoint > timeOfLatestRequestInMillis)) {
                     Point newDirectionPoint = new Point(wind.requestTimepoint, wind.dampenedTrueWindFromDeg);
-                    if (wind.dampenedTrueWindSpeedInKnots != null) {
-                        String name = numberFormat.format(wind.dampenedTrueWindSpeedInKnots)+ stringMessages.knotsUnit();
-                        // name += " Confidence:" + wind.confidence;
-                        newDirectionPoint.setName(name);
-                    }
                     if (previousDirectionPoint != null) {
                         newDirectionPoint = ChartPointRecalculator.stayClosestToPreviousPoint(previousDirectionPoint,
                                 newDirectionPoint);
@@ -696,7 +691,6 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
                 result.put(StatKind.AVG, getDoubleValue(computeAvg()));
                 result.put(StatKind.MIN, min);
                 result.put(StatKind.MAX, max);
-                GWT.log("Stats of "+this+": "+result);
             }
             return result;
         }

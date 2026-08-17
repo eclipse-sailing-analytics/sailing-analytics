@@ -419,7 +419,7 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
     /**
      * RPC calls may receive responses out of order if there are multiple calls in-flight at the same time. If the time
      * slider is moved quickly it generates many requests for boat positions quickly after each other. Sometimes,
-     * responses for requests send later may return before the responses to all earlier requests have been received and
+     * responses for requests sent later may return before the responses to all earlier requests have been received and
      * processed. This counter is used to number the requests. When processing of a response for a later request has
      * already begun, responses to earlier requests will be ignored.
      */
@@ -3927,6 +3927,10 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
                 showAdvantageLineAndUpdateWindLadder(getCompetitorsToShow(), getTimer().getTime(), /* timeForPositionTransitionMillis */ -1 /* (no transition) */);
             }
         }.schedule(500);
+    }
+    
+    public TimeRangeActionsExecutor<CompactBoatPositionsDTO, GPSFixDTOWithSpeedWindTackAndLegTypeIterable, Pair<String, DetailType>> getTimeRangeActionsExecutor() {
+        return timeRangeActionsExecutor;
     }
 }
 
