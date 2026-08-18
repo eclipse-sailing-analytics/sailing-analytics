@@ -32,11 +32,11 @@
             </div>
             <div class="{res.mediaCss.column} {res.mediaCss.small12} {res.mediaCss.medium6}">
                 <label for="startDate"><ui:text from='{i18n.startDateLabel}' /></label>
-                <dt:DateInput ui:field="startDateInput"/>
+                <dt:DateAndTimeInput ui:field="startDateInput"/>
             </div>
             <div class="{res.mediaCss.column} {res.mediaCss.small12} {res.mediaCss.medium6}">
                 <label for="endDate"><ui:text from='{i18n.endDateLabel}' /></label>
-                <dt:DateInput ui:field="endDateInput"/>
+                <dt:DateAndTimeInput ui:field="endDateInput"/>
             </div>
             <div class="{res.mediaCss.column} {res.mediaCss.small12}">
                 <label for="description"><ui:text from='{i18n.descriptionLabel}' /></label>

@@ -17,7 +17,8 @@ import com.sap.sailing.gwt.managementconsole.partials.inputs.listofstrings.ListO
 import com.sap.sailing.gwt.managementconsole.places.UiUtils;
 import com.sap.sailing.gwt.ui.shared.EventDTO;
 import com.sap.sailing.gwt.ui.shared.VenueDTO;
-import com.sap.sse.gwt.client.controls.datetime.DateInput;
+import com.sap.sse.gwt.client.controls.datetime.DateAndTimeInput;
+import com.sap.sse.gwt.client.controls.datetime.DateTimeInput.Accuracy;
 
 public class EditEventViewImpl extends Composite implements EditEventView {
 
@@ -28,10 +29,10 @@ public class EditEventViewImpl extends Composite implements EditEventView {
     Button saveEventButton;
     @UiField
     Anchor back;
-    @UiField
-    DateInput startDateInput;
-    @UiField
-    DateInput endDateInput;
+    @UiField(provided = true)
+    DateAndTimeInput startDateInput;
+    @UiField(provided = true)
+    DateAndTimeInput endDateInput;
     @UiField
     ListOfStringsInput courseAreasInput;
     @UiField
@@ -42,6 +43,8 @@ public class EditEventViewImpl extends Composite implements EditEventView {
     private Presenter presenter;
 
     public EditEventViewImpl() {
+        startDateInput = new DateAndTimeInput(Accuracy.MINUTES);
+        endDateInput = new DateAndTimeInput(Accuracy.MINUTES);
         initWidget(uiBinder.createAndBindUi(this));
         back.addClickHandler(e -> presenter.cancelEdit());
         saveEventButton.addClickHandler(e -> validateAndSaveEvent());
