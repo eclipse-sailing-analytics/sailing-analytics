@@ -3,6 +3,7 @@ package com.sap.sailing.gwt.managementconsole.places.event.overview;
 import com.google.gwt.core.client.GWT;
 import com.google.gwt.event.shared.EventBus;
 import com.google.gwt.user.client.Window;
+import com.google.gwt.user.client.rpc.AsyncCallback;
 import com.google.gwt.user.client.ui.AcceptsOneWidget;
 import com.google.gwt.user.client.ui.Label;
 import com.sap.sailing.gwt.common.communication.event.EventMetadataDTO;
@@ -19,6 +20,7 @@ import com.sap.sailing.gwt.ui.client.StringMessages;
 import com.sap.sse.gwt.client.Notification;
 import com.sap.sse.gwt.client.Notification.NotificationType;
 import com.sap.sse.gwt.client.formfactor.DeviceDetector;
+import com.sap.sse.security.shared.HasPermissions.DefaultActions;
 
 public class EventOverviewActivity extends AbstractManagementConsoleActivity<EventOverviewPlace>
         implements EventOverviewView.Presenter {
@@ -90,6 +92,37 @@ public class EventOverviewActivity extends AbstractManagementConsoleActivity<Eve
 
     @Override
     public void deleteEvent(final EventMetadataDTO event) {
-        Notification.notify("Deleting event: " + event.getId(), NotificationType.WARNING);
+        final ManagementConsoleResources app_res = ManagementConsoleResources.INSTANCE;
+        final ContextMenu confirmDelete = new ContextMenu();
+        final String message = i18n.confirmDeleteEvent(event.getDisplayName());
+        confirmDelete.setTitle(message);
+        confirmDelete.setHeaderWidget(new Label(message));
+        confirmDelete.addItem(i18n.delete(), app_res.icons().iconDelete(), e -> performDeleteEvent(event));
+        confirmDelete.addItem(i18n.cancel(), app_res.icons().iconClose(),
+                e -> GWT.log("Event deletion canceled."));
+        // set the delete option as primary action
+        confirmDelete.setPrimaryItemIndex(0);
+        confirmDelete.show();
+    }
+
+    @Override
+    public boolean canDeleteEvent(final EventMetadataDTO event) {
+        return getClientFactory().getUserService().hasPermission(event, DefaultActions.DELETE);
+    }
+
+    private void performDeleteEvent(final EventMetadataDTO event) {
+        getClientFactory().getEventService().deleteEvent(event.getId(), new AsyncCallback<Void>() {
+            @Override
+            public void onFailure(final Throwable caught) {
+                Notification.notify(i18n.errorDeletingEvent(event.getDisplayName(), caught.getMessage()),
+                        NotificationType.ERROR);
+            }
+
+            @Override
+            public void onSuccess(final Void result) {
+                Notification.notify(i18n.eventDeleted(event.getDisplayName()), NotificationType.SUCCESS);
+                reloadEventList();
+            }
+        });
     }
 }
