@@ -2,7 +2,7 @@
 <ui:UiBinder xmlns:ui="urn:ui:com.google.gwt.uibinder"
              xmlns:g="urn:import:com.google.gwt.user.client.ui"
              xmlns:dt="urn:import:com.sap.sse.gwt.client.controls.datetime"
-             xmlns:los="urn:import:com.sap.sailing.gwt.managementconsole.partials.inputs.listofstrings">
+             xmlns:ca="urn:import:com.sap.sailing.gwt.managementconsole.partials.inputs.courseareas">
 
     <ui:with field="res" type="com.sap.sailing.gwt.common.client.SharedResources" />
     <ui:with field="app_res" type="com.sap.sailing.gwt.managementconsole.resources.ManagementConsoleResources" />
@@ -24,7 +24,7 @@
             </div>
         </div>
         <g:ScrollPanel ui:field="scrollContainer">
-            <g:FlowPanel>
+            <g:HTMLPanel>
                 <div class="{res.mediaCss.grid}">
                     <div class="{res.mediaCss.column} {res.mediaCss.small12} {res.mediaCss.medium6}">
                         <label for="eventName"><ui:text from='{i18n.nameLabel}' /></label>
@@ -50,7 +50,7 @@
                         <div class="{res.mediaCss.small12} {res.mediaCss.medium12}">
                             <label for="course_areas"><ui:text from='{i18n.courseAreasLabel}' /></label>
                         </div>
-                        <los:ListOfStringsInput ui:field="courseAreasInput"></los:ListOfStringsInput>
+                        <ca:CourseAreasInput ui:field="courseAreasInput"/>
                     </div>
                     <div class="{res.mediaCss.column} {res.mediaCss.small12} {res.mediaCss.medium6}">
                         <label class="{app_res.style.checkboxField}">
@@ -64,7 +64,7 @@
                         <g:Button ui:field="saveEventButton" text="{i18n.save}" addStyleNames="{app_res.style.button} {app_res.style.buttonRight} {app_res.style.primary}"/>
                     </div>
                 </div>
-            </g:FlowPanel>
+            </g:HTMLPanel>
         </g:ScrollPanel>
     </g:HTMLPanel>
 </ui:UiBinder>

@@ -9,6 +9,7 @@ import com.google.gwt.dom.client.InputElement;
 import com.google.gwt.dom.client.Style.Unit;
 import com.google.gwt.uibinder.client.UiBinder;
 import com.google.gwt.uibinder.client.UiField;
+import com.google.gwt.user.client.rpc.AsyncCallback;
 import com.google.gwt.user.client.ui.Anchor;
 import com.google.gwt.user.client.ui.Button;
 import com.google.gwt.user.client.ui.Composite;
@@ -16,7 +17,7 @@ import com.google.gwt.user.client.ui.ScrollPanel;
 import com.google.gwt.user.client.ui.TextArea;
 import com.google.gwt.user.client.ui.Widget;
 import com.sap.sailing.domain.common.dto.CourseAreaDTO;
-import com.sap.sailing.gwt.managementconsole.partials.inputs.listofstrings.ListOfStringsInput;
+import com.sap.sailing.gwt.managementconsole.partials.inputs.courseareas.CourseAreasInput;
 import com.sap.sailing.gwt.managementconsole.places.UiUtils;
 import com.sap.sailing.gwt.ui.shared.EventDTO;
 import com.sap.sailing.gwt.ui.shared.VenueDTO;
@@ -41,7 +42,7 @@ public class EditEventViewImpl extends Composite implements EditEventView {
     @UiField(provided = true)
     DateAndTimeInput endDateInput;
     @UiField
-    ListOfStringsInput courseAreasInput;
+    CourseAreasInput courseAreasInput;
     @UiField
     InputElement venueInput, nameInput, isPublicCheckbox;
     @UiField
@@ -68,15 +69,10 @@ public class EditEventViewImpl extends Composite implements EditEventView {
         startDateInput.setValue(event.startDate);
         endDateInput.setValue(event.endDate);
         isPublicCheckbox.setChecked(event.isPublic);
-
-        // Populate course areas
-        List<String> courseAreaNames = new ArrayList<>();
-        if (venue != null && venue.getCourseAreas() != null) {
-            for (CourseAreaDTO ca : venue.getCourseAreas()) {
-                courseAreaNames.add(ca.getName());
-            }
-        }
-        courseAreasInput.setValue(courseAreaNames);
+        // Populate course areas, preserving their identity and geometry
+        final List<CourseAreaDTO> courseAreas = venue != null && venue.getCourseAreas() != null
+                ? venue.getCourseAreas() : new ArrayList<CourseAreaDTO>();
+        courseAreasInput.setValue(courseAreas);
     }
 
     private void validateAndSaveEvent() {
@@ -87,7 +83,7 @@ public class EditEventViewImpl extends Composite implements EditEventView {
                     venueInput.getValue(),
                     startDateInput.getValue(),
                     endDateInput.getValue(),
-                    courseAreasInput.getNotEmptyValues(),
+                    courseAreasInput.getValue(),
                     isPublicCheckbox.isChecked());
         }
     }
@@ -98,8 +94,19 @@ public class EditEventViewImpl extends Composite implements EditEventView {
     }
 
     @Override
-    public void setPresenter(Presenter presenter) {
+    public void setPresenter(final Presenter presenter) {
         this.presenter = presenter;
+        courseAreasInput.setDataProvider(new CourseAreasInput.DataProvider() {
+            @Override
+            public void getLocalEvents(final AsyncCallback<List<EventDTO>> callback) {
+                presenter.loadLocalEvents(callback);
+            }
+            @Override
+            public void getRemoteEvents(final String baseUrl, final String bearerTokenOrNull,
+                    final AsyncCallback<List<EventDTO>> callback) {
+                presenter.loadRemoteEvents(baseUrl, bearerTokenOrNull, callback);
+            }
+        });
     }
 
     @Override

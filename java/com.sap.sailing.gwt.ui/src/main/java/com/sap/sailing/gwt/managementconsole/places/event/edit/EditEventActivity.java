@@ -60,33 +60,39 @@ public class EditEventActivity extends AbstractManagementConsoleActivity<EditEve
         }
 
         @Override
-        public void saveEvent(String name, String description, String venue, Date startDate, Date endDate,
-                List<String> courseAreaNames, boolean isPublic) {
-
+        public void saveEvent(final String name, final String description, final String venue, final Date startDate,
+                final Date endDate, final List<CourseAreaDTO> courseAreas, final boolean isPublic) {
             // Update the event DTO with new values
             currentEvent.setName(name);
             currentEvent.setDescription(description);
             currentEvent.startDate = startDate;
             currentEvent.endDate = endDate;
             currentEvent.isPublic = isPublic;
-
             // Update venue
             VenueDTO venueDTO = currentEvent.getVenue();
+            final List<CourseAreaDTO> oldCourseAreas = venueDTO != null && venueDTO.getCourseAreas() != null
+                    ? new ArrayList<>(venueDTO.getCourseAreas()) : new ArrayList<CourseAreaDTO>();
             if (venueDTO == null) {
                 venueDTO = new VenueDTO(venue);
                 currentEvent.setVenue(venueDTO);
             } else {
                 venueDTO.setName(venue);
             }
-
-            // Update course areas
-            List<CourseAreaDTO> courseAreas = new ArrayList<>();
-            for (String caName : courseAreaNames) {
-                courseAreas.add(new CourseAreaDTO(UUID.randomUUID(), caName));
-            }
+            // The course areas already carry their identity and geometry; persist them as-is. The server reconciles
+            // added and removed course areas separately from the event update, so hand over the previous set for diffing.
             venueDTO.setCourseAreas(courseAreas);
+            getClientFactory().getEventService().updateEvent(currentEvent, oldCourseAreas, getUpdateEventCallback());
+        }
 
-            getClientFactory().getEventService().updateEvent(currentEvent, getUpdateEventCallback());
+        @Override
+        public void loadLocalEvents(final AsyncCallback<List<EventDTO>> callback) {
+            getClientFactory().getEventService().getAllEvents(callback);
+        }
+
+        @Override
+        public void loadRemoteEvents(final String baseUrl, final String bearerTokenOrNull,
+                final AsyncCallback<List<EventDTO>> callback) {
+            getClientFactory().getEventService().getRemoteEvents(baseUrl, bearerTokenOrNull, callback);
         }
 
         private AsyncCallback<EventDTO> getUpdateEventCallback() {

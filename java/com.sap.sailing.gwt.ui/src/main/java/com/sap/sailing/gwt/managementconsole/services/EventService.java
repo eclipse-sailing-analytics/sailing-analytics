@@ -126,18 +126,77 @@ public class EventService {
         sailingService.getEventById(eventId, /* withStatisticalData */ false, callback);
     }
 
+    public void getAllEvents(final AsyncCallback<List<EventDTO>> callback) {
+        sailingService.getEvents(callback);
+    }
+
+    public void getRemoteEvents(final String baseUrl, final String bearerTokenOrNull,
+            final AsyncCallback<List<EventDTO>> callback) {
+        sailingService.getRemoteEvents(baseUrl, bearerTokenOrNull, callback);
+    }
+
     public void updateEvent(final EventDTO eventDTO, final AsyncCallback<EventDTO> callback) {
+        updateEvent(eventDTO, /* oldCourseAreas */ new ArrayList<CourseAreaDTO>(), callback);
+    }
+
+    /**
+     * Persists the given {@code eventDTO} and, separately, reconciles its venue's course areas against
+     * {@code oldCourseAreas}. The server's {@code updateEvent} operation intentionally does not touch course areas;
+     * they are added and removed through dedicated operations, matching the AdminConsole behavior. Course areas are
+     * compared by their {@link CourseAreaDTO#getId() identity}, so newly added areas are created and deleted areas are
+     * removed, while areas kept across the edit are left untouched.
+     */
+    public void updateEvent(final EventDTO eventDTO, final List<CourseAreaDTO> oldCourseAreas,
+            final AsyncCallback<EventDTO> callback) {
+        final List<CourseAreaDTO> newCourseAreas = eventDTO.getVenue() != null
+                && eventDTO.getVenue().getCourseAreas() != null
+                        ? new ArrayList<>(eventDTO.getVenue().getCourseAreas()) : new ArrayList<CourseAreaDTO>();
+        final List<CourseAreaDTO> courseAreasToAdd = new ArrayList<>(newCourseAreas);
+        courseAreasToAdd.removeAll(oldCourseAreas);
+        final List<CourseAreaDTO> courseAreasToRemove = new ArrayList<>(oldCourseAreas);
+        courseAreasToRemove.removeAll(newCourseAreas);
         sailingService.updateEvent(eventDTO, new AsyncCallback<EventDTO>() {
             @Override
-            public void onFailure(Throwable caught) {
+            public void onFailure(final Throwable caught) {
                 callback.onFailure(caught);
             }
 
             @Override
-            public void onSuccess(EventDTO result) {
-                // Invalidate the event list cache so it gets reloaded
-                eventIdToEventMap.clear();
-                callback.onSuccess(result);
+            public void onSuccess(final EventDTO result) {
+                syncCourseAreas(eventDTO.id, courseAreasToAdd, courseAreasToRemove, result, callback);
+            }
+        });
+    }
+
+    private void syncCourseAreas(final UUID eventId, final List<CourseAreaDTO> courseAreasToAdd,
+            final List<CourseAreaDTO> courseAreasToRemove, final EventDTO result,
+            final AsyncCallback<EventDTO> callback) {
+        sailingService.createCourseAreas(eventId, courseAreasToAdd, new AsyncCallback<Void>() {
+            @Override
+            public void onFailure(final Throwable caught) {
+                callback.onFailure(caught);
+            }
+
+            @Override
+            public void onSuccess(final Void ignored) {
+                final UUID[] idsOfCourseAreasToRemove = new UUID[courseAreasToRemove.size()];
+                int index = 0;
+                for (final CourseAreaDTO courseAreaToRemove : courseAreasToRemove) {
+                    idsOfCourseAreasToRemove[index++] = courseAreaToRemove.getId();
+                }
+                sailingService.removeCourseAreas(eventId, idsOfCourseAreasToRemove, new AsyncCallback<Void>() {
+                    @Override
+                    public void onFailure(final Throwable caught) {
+                        callback.onFailure(caught);
+                    }
+
+                    @Override
+                    public void onSuccess(final Void ignored) {
+                        // Invalidate the event list cache so it gets reloaded
+                        eventIdToEventMap.clear();
+                        callback.onSuccess(result);
+                    }
+                });
             }
         });
     }
