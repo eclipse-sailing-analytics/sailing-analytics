@@ -190,6 +190,10 @@ public interface StringMessages extends com.sap.sse.gwt.client.StringMessages,
     String country();
     String no3LetterCodes();
     String delete();
+    String confirmDeleteEvent(String eventName);
+    String eventDeleted(String eventName);
+    String errorDeletingEvent(String eventName, String message);
+    String noPermissionToDeleteEvent();
     String showCharts();
     String raceWithThisNameAlreadyExists();
     String raceWithThisNameAlreadyExistsInRegatta();

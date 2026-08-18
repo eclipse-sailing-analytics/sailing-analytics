@@ -73,7 +73,9 @@ public class EventOverviewViewImpl extends Composite implements EventOverviewVie
         contextMenu.setHeaderWidget(new EventInfo(event));
         contextMenu.addItem(i18n.edit(), app_res.icons().iconSettings(), e -> presenter.editEvent(event));
         contextMenu.addItem(i18n.advanced(), app_res.icons().iconSettings(), e -> presenter.advancedSettings(app_res, event));
-        contextMenu.addItem(i18n.delete(), app_res.icons().iconDelete(), e -> presenter.deleteEvent(event));
+        final boolean canDelete = presenter.canDeleteEvent(event);
+        contextMenu.addItem(i18n.delete(), app_res.icons().iconDelete(), e -> presenter.deleteEvent(event), canDelete,
+                canDelete ? null : i18n.noPermissionToDeleteEvent());
         contextMenu.show();
     }
 

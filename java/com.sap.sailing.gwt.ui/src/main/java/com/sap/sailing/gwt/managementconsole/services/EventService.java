@@ -141,4 +141,20 @@ public class EventService {
             }
         });
     }
+
+    public void deleteEvent(final UUID eventId, final AsyncCallback<Void> callback) {
+        sailingService.removeEvent(eventId, new AsyncCallback<Void>() {
+            @Override
+            public void onFailure(final Throwable caught) {
+                callback.onFailure(caught);
+            }
+
+            @Override
+            public void onSuccess(final Void result) {
+                // Invalidate the event list cache so it gets reloaded
+                eventIdToEventMap.clear();
+                callback.onSuccess(result);
+            }
+        });
+    }
 }
