@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<launchConfiguration type="com.github.sdbg.debug.core.chromeLaunchConfig">
+    <stringAttribute key="applicationArguments" value=""/>
+    <stringAttribute key="applicationName" value=""/>
+    <stringAttribute key="browserSearchOrder" value="chrome,chromium,edge,firefox"/>
+    <booleanAttribute key="launchFile" value="false"/>
+    <booleanAttribute key="org.eclipse.debug.core.ATTR_FORCE_SYSTEM_CONSOLE_ENCODING" value="false"/>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_PATHS">
+        <listEntry value="/com.sap.sailing.gwt.ui"/>
+    </listAttribute>
+    <listAttribute key="org.eclipse.debug.core.MAPPED_RESOURCE_TYPES">
+        <listEntry value="4"/>
+    </listAttribute>
+    <stringAttribute key="projectName" value="com.sap.sailing.gwt.ui"/>
+    <booleanAttribute key="showLaunchOutput" value="false"/>
+    <stringAttribute key="url" value="http://127.0.0.1:8888/gwt/RaceBoard.html?regattaName=TW2026+-+Finn&amp;raceName=Finn+-+R7&amp;leaderboardName=TW2026+-+Finn&amp;canReplayDuringLiveRaces=true"/>
+    <stringAttribute key="urlQueryParams" value=""/>
+</launchConfiguration>
