@@ -4,12 +4,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 import com.google.gwt.core.client.GWT;
+import com.google.gwt.dom.client.Element;
 import com.google.gwt.dom.client.InputElement;
+import com.google.gwt.dom.client.Style.Unit;
 import com.google.gwt.uibinder.client.UiBinder;
 import com.google.gwt.uibinder.client.UiField;
 import com.google.gwt.user.client.ui.Anchor;
 import com.google.gwt.user.client.ui.Button;
 import com.google.gwt.user.client.ui.Composite;
+import com.google.gwt.user.client.ui.ScrollPanel;
 import com.google.gwt.user.client.ui.TextArea;
 import com.google.gwt.user.client.ui.Widget;
 import com.sap.sailing.domain.common.dto.CourseAreaDTO;
@@ -29,6 +32,10 @@ public class EditEventViewImpl extends Composite implements EditEventView {
     Button saveEventButton;
     @UiField
     Anchor back;
+    @UiField
+    Element headerContainer;
+    @UiField
+    ScrollPanel scrollContainer;
     @UiField(provided = true)
     DateAndTimeInput startDateInput;
     @UiField(provided = true)
@@ -97,7 +104,8 @@ public class EditEventViewImpl extends Composite implements EditEventView {
 
     @Override
     public void onResize() {
-        // No special resize handling needed
+        final int scrollContainerHeight = getElement().getOffsetHeight() - headerContainer.getOffsetHeight();
+        scrollContainer.getElement().getStyle().setHeight(scrollContainerHeight, Unit.PX);
     }
 
 }
