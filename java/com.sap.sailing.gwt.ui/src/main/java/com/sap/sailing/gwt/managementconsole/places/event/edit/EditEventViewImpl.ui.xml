@@ -49,7 +49,7 @@
                 <los:ListOfStringsInput ui:field="courseAreasInput"></los:ListOfStringsInput>
             </div>
             <div class="{res.mediaCss.column} {res.mediaCss.small12} {res.mediaCss.medium6}">
-                <label>
+                <label class="{app_res.style.checkboxField}">
                     <input type="checkbox" ui:field="isPublicCheckbox"/>
                     <span><ui:text from='{i18n.isPublicLabel}' /></span>
                 </label>
