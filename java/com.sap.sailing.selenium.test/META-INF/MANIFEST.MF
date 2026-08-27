@@ -25,9 +25,12 @@ Require-Bundle: org.hamcrest;bundle-version="2.2.0",
 Bundle-ClassPath: .
 Automatic-Module-Name: com.sap.sailing.selenium.test
 Import-Package: com.google.protobuf;version="[4.28.0,5.0.0)",
+ com.sap.sailing.gwt.ui.server,
  com.sap.sailing.domain.igtimiadapter,
  com.sap.sailing.domain.igtimiadapter.datatypes,
  com.sap.sailing.domain.igtimiadapter.impl,
+ com.sap.sailing.declination,
+ com.sap.sailing.domain.igtimiadapter.shared,
  com.sap.sailing.domain.igtimiadapter.server.riot,
  com.sap.sailing.domain.igtimiadapter.websocket,
  com.sap.sailing.domain.test,

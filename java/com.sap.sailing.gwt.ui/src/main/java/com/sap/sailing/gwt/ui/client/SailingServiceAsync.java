@@ -160,6 +160,12 @@ public interface SailingServiceAsync extends RemoteReplicationServiceAsync {
 
     void getWindInfoForIgtimiDevice(String serialNumber, Date from, Date to,
             AsyncCallback<WindInfoForRaceDTO> callback);
+    
+    void startIgtimiWindLiveSubscription(Collection<String> serialNumbers, AsyncCallback<Util.Pair<String, Date>> callback);
+
+    void getIgtimiWindLiveUpdates(String subscriptionId, AsyncCallback<WindInfoForRaceDTO> callback);
+
+    void stopIgtimiWindLiveSubscription(String subscriptionId, AsyncCallback<Void> callback);
 
     /**
      * @param onlyUpToNewestEvent
