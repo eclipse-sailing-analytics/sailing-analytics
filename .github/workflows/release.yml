@@ -325,10 +325,17 @@ jobs:
   # A compile-only build that FAILED (build.result != success) still runs the
   # gate below and goes red, and the trivial-change skip still runs and goes
   # green — so docs-only PRs are not left pending forever.
+  #
+  # The always() is REQUIRED: without it, a FAILED build (a job listed in needs:)
+  # would cascade-skip this gate by GitHub's default rule, leaving the required
+  # check quietly pending instead of red. always() forces the gate to run for
+  # every build outcome so the guard alone — not the needs: cascade — decides
+  # whether it runs; the sole non-run case is the narrow successful-compile-only
+  # one above. (A real build failure then runs the gate and it exits 1 → red.)
   build-gate:
     permissions: {}
     needs: [changes, build]
-    if: ${{ !(needs.build.result == 'success' && needs.build.outputs.skip_tests == 'true') }}
+    if: ${{ always() && !(needs.build.result == 'success' && needs.build.outputs.skip_tests == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - run: |
