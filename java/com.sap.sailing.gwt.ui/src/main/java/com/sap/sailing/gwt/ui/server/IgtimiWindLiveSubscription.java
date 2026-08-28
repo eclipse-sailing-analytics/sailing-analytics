@@ -28,7 +28,7 @@ import com.sap.sailing.gwt.ui.shared.SailingServiceConstants;
  * {@value #IDLE_TIMEOUT_IN_MILLISECONDS} ms are eligible for server-side cleanup.
  */
 public class IgtimiWindLiveSubscription {
-    private static final long IDLE_TIMEOUT_IN_MILLISECONDS = 2*60*1000l;
+    private static final long IDLE_TIMEOUT_IN_MILLISECONDS = 2*60*1000l; // two minutes
     private final String subscriptionId;
     private final String ownerName;
     private final LiveDataConnection liveDataConnection;

@@ -679,8 +679,8 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
                 ThreadPoolUtil.INSTANCE.getDefaultBackgroundTaskThreadPoolExecutor()
                         .scheduleAtFixedRate(
                                 this::removeIdleIgtimiWindLiveSubscriptions,
-                                30,
-                                30,
+                                30, // initial delay
+                                30, // period
                                 TimeUnit.SECONDS);
         if (context != null) {
             activator.setSailingService(this); // register so this service is informed when the bundle shuts down
