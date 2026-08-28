@@ -28,7 +28,10 @@ public abstract class LogoUtil {
     }
 
     private static void setLogoAndTitle(Element logoUi, String logoUrl, String logoTitle, MediaMenuIcon logoMenuIcon) {
-        logoUi.getStyle().setBackgroundImage("url(" + logoUrl + ")");
+        final String backgroundImage = DEFAULT_EVENT_LOGO.asString().equals(logoUrl)
+                ? "url(\"" + logoUrl + "\")"
+                : "url(\"" + logoUrl + "\"), url(\"" + DEFAULT_EVENT_LOGO.asString() + "\")";
+        logoUi.getStyle().setBackgroundImage(backgroundImage);
         logoUi.setTitle(logoTitle);
         logoMenuIcon.setData(logoTitle, logoUrl);
     }

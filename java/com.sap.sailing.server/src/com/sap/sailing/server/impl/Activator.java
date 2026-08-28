@@ -2,11 +2,16 @@ package com.sap.sailing.server.impl;
 
 import java.lang.management.ManagementFactory;
 import java.net.MalformedURLException;
+import java.net.URL;
 import java.nio.charset.Charset;
 import java.util.Dictionary;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Hashtable;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -26,6 +31,7 @@ import org.osgi.util.tracker.ServiceTrackerCustomizer;
 
 import com.sap.sailing.competitorimport.CompetitorProvider;
 import com.sap.sailing.domain.abstractlog.race.analyzing.impl.RaceLogResolver;
+import com.sap.sailing.domain.base.Event;
 import com.sap.sailing.domain.base.MasterDataImportClassLoaderService;
 import com.sap.sailing.domain.base.RaceDefinition;
 import com.sap.sailing.domain.base.Regatta;
@@ -65,8 +71,11 @@ import com.sap.sailing.server.gateway.interfaces.SailingServerFactory;
 import com.sap.sailing.shared.server.SharedSailingData;
 import com.sap.sse.branding.BrandingConfigurationService;
 import com.sap.sse.classloading.ServiceTrackerCustomizerForClassLoaderSupplierRegistrations;
+import com.sap.sse.common.Duration;
 import com.sap.sse.common.TypeBasedServiceFinder;
 import com.sap.sse.common.Util;
+import com.sap.sse.common.Util.Pair;
+import com.sap.sse.common.mail.MailException;
 import com.sap.sse.mail.MailService;
 import com.sap.sse.mail.queue.MailQueue;
 import com.sap.sse.mail.queue.impl.ExecutorMailQueue;
@@ -79,18 +88,28 @@ import com.sap.sse.security.SecurityService;
 import com.sap.sse.security.SecurityUrlPathProvider;
 import com.sap.sse.security.interfaces.PreferenceConverter;
 import com.sap.sse.security.shared.HasPermissionsProvider;
+import com.sap.sse.security.shared.OwnershipAnnotation;
 import com.sap.sse.security.shared.RoleDefinition;
 import com.sap.sse.security.shared.ServerAdminRole;
 import com.sap.sse.security.shared.SubscriptionPlanProvider;
+import com.sap.sse.security.shared.impl.User;
 import com.sap.sse.security.shared.subscription.AllDataMiningRole;
 import com.sap.sse.security.shared.subscription.ArchiveDataMiningRole;
 import com.sap.sse.security.util.GenericJSONPreferenceConverter;
+import com.sap.sse.shared.media.ImageDescriptor;
 import com.sap.sse.util.ClearStateTestSupport;
 import com.sap.sse.util.ServiceTrackerFactory;
+import com.sap.sse.util.ThreadPoolUtil;
 
 public class Activator implements BundleActivator {
 
     private static final Logger logger = Logger.getLogger(Activator.class.getName());
+    
+    private static final Duration EVENT_IMAGE_CHECK_INITIAL_DELAY = Duration.ONE_MINUTE;
+
+    private static final Duration EVENT_IMAGE_CHECK_INTERVAL = Duration.ONE_DAY;
+    
+    static final String EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME = "eventImageHealthCheck.ownerNotification.enabled";
 
     private static final String CLEAR_PERSISTENT_COMPETITORS_PROPERTY_NAME = "persistentcompetitors.clear";
     
@@ -107,8 +126,14 @@ public class Activator implements BundleActivator {
     private final boolean clearPersistentCompetitors;
     
     private final boolean restoreTrackedRaces;
+    
+    private final boolean eventImageOwnerNotificationEnabled;
 
     private Set<ServiceRegistration<?>> registrations = new HashSet<>();
+    
+    private final Set<Pair<String, String>> brokenEventImages = new HashSet<>();
+    
+    private ScheduledFuture<?> eventImageHealthCheckTask;
 
     private ObjectName mBeanName;
 
@@ -139,8 +164,12 @@ public class Activator implements BundleActivator {
                 .valueOf(System.getProperty(CLEAR_PERSISTENT_COMPETITORS_PROPERTY_NAME, "" + false));
         restoreTrackedRaces = Boolean
                 .valueOf(System.getProperty(RESTORE_TRACKED_RACES_PROPERTY_NAME, "" + false));
+        eventImageOwnerNotificationEnabled = Boolean.valueOf(
+                System.getProperty(EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME, "" + false));
         logger.log(Level.INFO,
                 "setting " + CLEAR_PERSISTENT_COMPETITORS_PROPERTY_NAME + " to " + clearPersistentCompetitors);
+        logger.log(Level.INFO, "setting " + EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME + " to "
+                + eventImageOwnerNotificationEnabled);
         // there is exactly one instance of the racingEventService in the whole server
     }
 
@@ -201,8 +230,92 @@ public class Activator implements BundleActivator {
     public static BundleContext getContext() {
         return context;
     }
+    
+    boolean isNewlyBrokenEventImage(String eventIdentifier, String imageUrl, boolean imageAvailable) {
+        final Pair<String, String> eventImage = new Pair<>(eventIdentifier, imageUrl);
+        if (imageAvailable) {
+            brokenEventImages.remove(eventImage);
+            return false;
+        }
+        return brokenEventImages.add(eventImage);
+    }
+    
+    void checkEventImages(Iterable<Event> events, SecurityService securityService, ImageUrlHealthChecker imageUrlHealthChecker) {
+        if (securityService.getMasterDescriptor() != null) {
+            return;
+        }
+        final Map<String, Boolean> imageAvailabilityByUrl = new HashMap<>();
+        final Set<Util.Pair<String, String>> seenEventImages = new HashSet<>();
+        for (final Event event : events) {
+            for (final ImageDescriptor image : event.getImages()) {
+                final URL imageUrl = image.getURL();
+                if (imageUrl != null) {
+                    final String imageUrlAsString = imageUrl.toString();
+                    final String eventIdentifier = event.getId().toString();
+                    seenEventImages.add(new Util.Pair<>(eventIdentifier, imageUrlAsString));
+                    Boolean imageAvailable = imageAvailabilityByUrl.get(imageUrlAsString);
+                    if (imageAvailable == null) {
+                        imageAvailable = imageUrlHealthChecker.isImageAvailable(imageUrl);
+                        imageAvailabilityByUrl.put(imageUrlAsString, imageAvailable);
+                    }
+                    if (isNewlyBrokenEventImage(eventIdentifier, imageUrlAsString, imageAvailable)) {
+                        notifyEventOwnerAboutBrokenImage(event, imageUrlAsString, securityService);
+                    }
+                }
+            }
+        }
+        brokenEventImages.retainAll(seenEventImages);
+    }
+    
+    private void checkEventImages() {
+        try {
+            final SecurityService securityService = securityServiceTracker.getInitializedService(0);
+            if (securityService != null) {
+                checkEventImages(racingEventService.getAllEvents(), securityService, new ImageUrlHealthChecker());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.log(Level.WARNING, "Interrupted while checking event images", e);
+        } catch (RuntimeException e) {
+            logger.log(Level.SEVERE, "Could not check event images", e);
+        }
+    }
+
+    private void scheduleEventImageHealthChecks() {
+        eventImageHealthCheckTask = ThreadPoolUtil.INSTANCE.getDefaultBackgroundTaskThreadPoolExecutor()
+                .scheduleAtFixedRate(this::checkEventImages, EVENT_IMAGE_CHECK_INITIAL_DELAY.asMillis(),
+                        EVENT_IMAGE_CHECK_INTERVAL.asMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    private void notifyEventOwnerAboutBrokenImage(Event event, String imageUrl, SecurityService securityService) {
+        final OwnershipAnnotation ownership = securityService.getOwnership(event.getIdentifier());
+        final User owner = ownership == null ? null : ownership.getAnnotation().getUserOwner();
+        if (owner == null) {
+            logger.warning("Cannot notify owner about broken image " + imageUrl + " for event " + event.getName()
+                    + " because the event has no user owner");
+        } else {
+            final String subject = "Broken image for event " + event.getName();
+            final String body = "The image " + imageUrl + " configured for event \"" + event.getName()
+                    + "\" is no longer available. Please update or replace the image.";
+            if (!eventImageOwnerNotificationEnabled) {
+                logger.warning("Would notify owner " + owner.getName() + " about broken image " + imageUrl
+                        + " for event " + event.getName() + "; enable with -D"
+                        + EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME + "=true");
+                return;
+            }
+            try {
+                securityService.sendMail(owner.getName(), subject, body);
+            } catch (MailException e) {
+                logger.log(Level.SEVERE, "Could not notify owner " + owner.getName() + " about broken image "
+                        + imageUrl + " for event " + event.getName(), e);
+            }
+        }
+    }
 
     public void stop(BundleContext context) throws Exception {
+        if (eventImageHealthCheckTask != null) {
+            eventImageHealthCheckTask.cancel(/* mayInterruptIfRunning */ true);
+        }
         masterDataImportClassLoaderServiceTracker.close();
         if (extenderBundleTracker != null) {
             extenderBundleTracker.close();
@@ -368,6 +481,7 @@ public class Activator implements BundleActivator {
         // load has been finished in case this is a replica with auto-replication.
         racingEventService.ensureOwnerships();
         racingEventService.migrateCompetitorNotificationPreferencesWithCompetitorNames();
+        scheduleEventImageHealthChecks();
     }
 
     private class PolarDataServiceTrackerCustomizer

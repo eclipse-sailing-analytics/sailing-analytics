@@ -73,15 +73,18 @@ public class EventTeaser extends Composite {
         }
         venue.setInnerText(event.getLocationOrVenue());
         eventDate.setInnerText(EventDatesFormatterUtil.formatDateRangeWithoutYear(event.getStartDate(), event.getEndDate()));
+        final String defaultEventPhotoUrl = SharedHomeResources.INSTANCE.defaultEventPhotoImage().getSafeUri().asString();
         final StringBuilder thumbnailUrlBuilder = new StringBuilder("url('");
         final String thumbnailImageUrl = event.getThumbnailImageURL();
         if (thumbnailImageUrl == null || thumbnailImageUrl.isEmpty()) {
-            thumbnailUrlBuilder.append(SharedHomeResources.INSTANCE.defaultEventPhotoImage().getSafeUri().asString());
+            thumbnailUrlBuilder.append(defaultEventPhotoUrl);
         } else {
             thumbnailUrlBuilder.append(UriUtils.fromString(thumbnailImageUrl).asString());
         }
         thumbnailUrlBuilder.append("')");
-        eventImage.getStyle().setBackgroundImage(thumbnailUrlBuilder.toString());
+        final String backgroundImage = thumbnailImageUrl == null || thumbnailImageUrl.isEmpty()
+                ? thumbnailUrlBuilder.toString() : thumbnailUrlBuilder + ", url('" + defaultEventPhotoUrl + "')";
+        eventImage.getStyle().setBackgroundImage(backgroundImage);
         takedownButton.setData(event.getDisplayName(), thumbnailUrlBuilder.toString());
     }
     

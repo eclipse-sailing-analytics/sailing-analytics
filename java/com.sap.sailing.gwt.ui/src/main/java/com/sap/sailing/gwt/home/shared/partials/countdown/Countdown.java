@@ -54,13 +54,17 @@ public class Countdown extends Composite {
     }
     
     public void setData(EventOverviewTickerStageDTO data) {
+        final String defaultStageImageUrl =
+                SharedHomeResources.INSTANCE.defaultStageEventTeaserImage().getSafeUri().asString();
         final String stageImageUrl;
         if (data.getStageImageUrl() != null) {
             stageImageUrl = data.getStageImageUrl();
+            image.getStyle().setBackgroundImage(
+                    "url(\"" + stageImageUrl + "\"), url(\"" + defaultStageImageUrl + "\")");
         } else {
-            stageImageUrl = SharedHomeResources.INSTANCE.defaultStageEventTeaserImage().getSafeUri().asString();
+            stageImageUrl = defaultStageImageUrl;
+            image.getStyle().setBackgroundImage("url(\"" + stageImageUrl + "\")");
         }
-        image.getStyle().setBackgroundImage("url(\"" + stageImageUrl + "\")");
         navigationButton.removeStyleName(MAIN_CSS.buttonred());
         navigationButton.removeStyleName(MAIN_CSS.buttonprimary());
         if (data instanceof EventOverviewRaceTickerStageDTO) {
