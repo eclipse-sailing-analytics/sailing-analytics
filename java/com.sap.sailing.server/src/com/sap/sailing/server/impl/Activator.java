@@ -231,6 +231,14 @@ public class Activator implements BundleActivator {
         return context;
     }
     
+    /**
+     * Tracks whether a broken image for the given event is newly detected in this run.
+     *
+     * <p>Returns {@code true} (and records the pair) the first time a broken image is seen for an
+     * event. Returns {@code false} on subsequent calls for the same pair until the image recovers.
+     * When {@code imageAvailable} is {@code true} the pair is removed, so a future breakage is
+     * treated as new again.
+     */
     boolean isNewlyBrokenEventImage(String eventIdentifier, String imageUrl, boolean imageAvailable) {
         final Pair<String, String> eventImage = new Pair<>(eventIdentifier, imageUrl);
         if (imageAvailable) {
@@ -240,6 +248,17 @@ public class Activator implements BundleActivator {
         return brokenEventImages.add(eventImage);
     }
     
+    /**
+     * Checks the images of all given events and notifies owners of newly broken ones.
+     *
+     * <p>Each distinct image URL is checked at most once per call (results are cached in
+     * {@code imageAvailabilityByUrl}), so a URL shared across multiple events is only fetched once.
+     * Skipped on replica servers ({@code securityService.getMasterDescriptor() != null}).
+     * After the run, any (event, imageUrl) pair that was previously broken but is no longer present
+     * in the current event list is forgotten from {@code brokenEventImages}.
+     *
+     * <p>Package-visible for testing.
+     */
     void checkEventImages(Iterable<Event> events, SecurityService securityService, ImageUrlHealthChecker imageUrlHealthChecker) {
         if (securityService.getMasterDescriptor() != null) {
             return;
@@ -287,6 +306,13 @@ public class Activator implements BundleActivator {
                         EVENT_IMAGE_CHECK_INTERVAL.asMillis(), TimeUnit.MILLISECONDS);
     }
 
+    /**
+     * Sends a mail to the event owner when an image becomes unavailable.
+     *
+     * <p>If the owner cannot be determined, logs a warning instead. If owner notification is
+     * disabled via {@value #EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME}, logs what would
+     * have been sent without actually sending.
+     */
     private void notifyEventOwnerAboutBrokenImage(Event event, String imageUrl, SecurityService securityService) {
         final OwnershipAnnotation ownership = securityService.getOwnership(event.getIdentifier());
         final User owner = ownership == null ? null : ownership.getAnnotation().getUserOwner();
