@@ -108,6 +108,51 @@ public class IgtimiDeviceWindChart extends Composite implements RequiresResize {
         }
         chart.redraw();
     }
+    
+    public void appendData(final WindInfoForRaceDTO result) {
+        if (result == null || result.windTrackInfoByWindSource == null) {
+            return;
+        }
+        for (final Map.Entry<WindSource, WindTrackInfoDTO> entry : result.windTrackInfoByWindSource.entrySet()) {
+            final WindSource source = entry.getKey();
+            final Object sourceId = source.getId();
+            if (sourceId == null) {
+                continue;
+            }
+            final String serialNumber = sourceId.toString();
+            final WindTrackInfoDTO track = entry.getValue();
+            if (track == null || track.windFixes == null || track.windFixes.isEmpty()) {
+                continue;
+            }
+            final Series dirSeries = directionSeriesByDevice.get(serialNumber);
+            if (dirSeries == null) {
+                showData(result, serialNumber);
+                continue;
+            }
+            final Point[] existingDirectionPoints = dirSeries.getPoints();
+            Point previousDirPoint = existingDirectionPoints.length == 0
+                    ? null
+                    : existingDirectionPoints[existingDirectionPoints.length - 1];
+            final Series spdSeries = speedSeriesByDevice.get(serialNumber);
+            for (int i = 0; i < track.windFixes.size(); i++) {
+                final Long t = track.windFixes.get(i).requestTimepoint;
+                if (t == null) {
+                    continue;
+                }
+                Point dirPoint = new Point(t, track.windFixes.get(i).dampenedTrueWindFromDeg);
+                if (previousDirPoint != null) {
+                    dirPoint = ChartPointRecalculator.stayClosestToPreviousPoint(previousDirPoint, dirPoint);
+                }
+                previousDirPoint = dirPoint;
+                dirSeries.addPoint(dirPoint, false, false, false);
+                if (spdSeries != null) {
+                    spdSeries.addPoint(
+                            new Point(t, track.windFixes.get(i).dampenedTrueWindSpeedInKnots), false, false, false);
+                }
+            }
+        }
+        chart.redraw();
+    }
 
     public void removeDevice(final String serialNumber) {
         final Series dir = directionSeriesByDevice.remove(serialNumber);
