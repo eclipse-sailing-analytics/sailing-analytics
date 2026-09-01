@@ -41,9 +41,9 @@ import com.sap.sse.concurrent.LockUtil;
 import com.sap.sse.concurrent.NamedReentrantReadWriteLock;
 import com.sap.sse.util.ThreadPoolUtil;
 
-import java.io.IOException;
-import java.util.logging.FileHandler;
-import java.util.logging.SimpleFormatter;
+//import java.io.IOException;
+//import java.util.logging.FileHandler;
+//import java.util.logging.SimpleFormatter;
 
 /**
  * Calculates the {@link MarkPassing}s for a {@link DynamicTrackedRace} using an {@link CandidateFinder} and an
@@ -186,19 +186,19 @@ public class MarkPassingCalculator {
     }
 
     static {
-        FileHandler handler = null;
-        try {
-            final String logFile = System.getProperty("user.home") + "/Desktop/markpassing-calculator-" + System.currentTimeMillis() + ".log";
-            handler = new FileHandler(logFile, false);
-            handler.setLevel(Level.FINE);
-            handler.setFormatter(new SimpleFormatter());
-            logger.addHandler(handler);
-            logger.setLevel(Level.FINE);
-            System.out.println("MarkPassingCalculator diagnostic log: " + logFile);
-        } catch (IOException e) {
-            logger.log(Level.WARNING,
-                    "Could not create MarkPassingCalculator diagnostic log", e);
-        }
+//        FileHandler handler = null;
+//        try {
+//            final String logFile = System.getProperty("user.home") + "/Desktop/markpassing-calculator-" + System.currentTimeMillis() + ".log";
+//            handler = new FileHandler(logFile, false);
+//            handler.setLevel(Level.FINE);
+//            handler.setFormatter(new SimpleFormatter());
+//            logger.addHandler(handler);
+//            logger.setLevel(Level.FINE);
+//            System.out.println("MarkPassingCalculator diagnostic log: " + logFile);
+//        } catch (IOException e) {
+//            logger.log(Level.WARNING,
+//                    "Could not create MarkPassingCalculator diagnostic log", e);
+//        }
     }
 
     private Thread createAndStartListenerThread() {
