@@ -41,6 +41,10 @@ import com.sap.sse.concurrent.LockUtil;
 import com.sap.sse.concurrent.NamedReentrantReadWriteLock;
 import com.sap.sse.util.ThreadPoolUtil;
 
+import java.io.IOException;
+import java.util.logging.FileHandler;
+import java.util.logging.SimpleFormatter;
+
 /**
  * Calculates the {@link MarkPassing}s for a {@link DynamicTrackedRace} using an {@link CandidateFinder} and an
  * {@link CandidateChooser}. The finder evaluates the fixes and finds possible MarkPassings as {@link Candidate}s . The
@@ -181,10 +185,31 @@ public class MarkPassingCalculator {
         }
     }
 
+    static {
+        FileHandler handler = null;
+        try {
+            final String logFile = System.getProperty("user.home") + "/Desktop/markpassing-calculator-" + System.currentTimeMillis() + ".log";
+            handler = new FileHandler(logFile, false);
+            handler.setLevel(Level.FINE);
+            handler.setFormatter(new SimpleFormatter());
+            logger.addHandler(handler);
+            logger.setLevel(Level.FINE);
+            System.out.println("MarkPassingCalculator diagnostic log: " + logFile);
+        } catch (IOException e) {
+            logger.log(Level.WARNING,
+                    "Could not create MarkPassingCalculator diagnostic log", e);
+        }
+    }
+
     private Thread createAndStartListenerThread() {
         final Thread result = new Thread(listen, "MarkPassingCalculator for race " + race.getRaceIdentifier());
         result.setDaemon(true);
+        logger.fine(() -> "LISTENER creating " + result);
         result.start();
+        logger.fine(() -> "LISTENER started"
+                + "; thread=" + result
+                + "; listenerThreadStarted=" + listenerThreadStarted
+                + "; alive=" + result.isAlive());
         return result;
     }
 
@@ -202,13 +227,35 @@ public class MarkPassingCalculator {
     public void waitUntilStopped(final long timeoutInMillis) throws InterruptedException {
         final long start = System.currentTimeMillis();
         final Thread theListenerThread = listenerThread;
+        logger.fine(() -> "WAIT entered"
+                + "; listenerThread=" + theListenerThread
+                + "; listenerThreadStarted=" + listenerThreadStarted
+                + "; alive=" + (theListenerThread != null
+                        && theListenerThread.isAlive())
+                + "; timeoutMillis=" + timeoutInMillis);
         if (theListenerThread != null) {
             synchronized (theListenerThread) {
-                while (!listenerThreadStarted && System.currentTimeMillis() - start < timeoutInMillis) {
+                while (!listenerThreadStarted
+                        && System.currentTimeMillis() - start < timeoutInMillis) {
+                    logger.fine(() -> "WAIT waiting for listener start"
+                            + "; listenerThread=" + theListenerThread
+                            + "; listenerThreadStarted="
+                            + listenerThreadStarted
+                            + "; alive=" + theListenerThread.isAlive());
                     theListenerThread.wait(timeoutInMillis);
                 }
             }
+            logger.fine(() -> "WAIT before join"
+                    + "; listenerThreadStarted=" + listenerThreadStarted
+                    + "; alive=" + theListenerThread.isAlive()
+                    + "; elapsedMillis="
+                    + (System.currentTimeMillis() - start));
             theListenerThread.join(timeoutInMillis);
+            logger.fine(() -> "WAIT after join"
+                    + "; listenerThreadStarted=" + listenerThreadStarted
+                    + "; alive=" + theListenerThread.isAlive()
+                    + "; elapsedMillis="
+                    + (System.currentTimeMillis() - start));
         }
     }
 
@@ -271,6 +318,7 @@ public class MarkPassingCalculator {
 
         @Override
         public void run() {
+            logger.fine(() -> "LISTENER run entered" + "; thread=" + Thread.currentThread() + "; listenerThreadStarted=" + listenerThreadStarted);
             try {
                 logger.fine("MarkPassingCalculator is listening on race " + raceName);
                 boolean finished = false;
@@ -392,7 +440,15 @@ public class MarkPassingCalculator {
                             }
                             updateManuallySetMarkPassings(fixedMarkPassings, removedFixedMarkPassings,
                                     suppressedMarkPassings, unsuppressedMarkPassings);
-                            computeMarkPasses(competitorFixes, competitorFixesThatReplacedExistingOnes, markFixes);
+                            final long computeStartedAt = System.currentTimeMillis();
+                            logger.fine(() -> "COMPUTE start"
+                                    + "; race=" + raceName
+                                    + "; thread=" + Thread.currentThread());
+                            computeMarkPasses(competitorFixes, competitorFixesThatReplacedExistingOnes,markFixes);
+                            logger.fine(() -> "COMPUTE finished"
+                                    + "; race=" + raceName
+                                    + "; elapsedMillis="
+                                    + (System.currentTimeMillis() - computeStartedAt));
                             competitorFixes.clear();
                             competitorFixesThatReplacedExistingOnes.clear();
                             markFixes.clear();
@@ -413,7 +469,11 @@ public class MarkPassingCalculator {
                     }
                 }
             } finally {
-                logger.fine("MarkPassingCalculator Listen thread terminating for race " + raceName);
+                logger.fine(() -> "LISTENER run finished"
+                        + "; race=" + raceName
+                        + "; thread=" + Thread.currentThread()
+                        + "; listenerThreadStarted=" + listenerThreadStarted
+                        + "; listenerThread=" + listenerThread);
             }
         }
 
@@ -498,8 +558,18 @@ public class MarkPassingCalculator {
                     }
                 }, CPUMeteringType.MARK_PASSINGS.name()));
             }
-            ThreadPoolUtil.INSTANCE.invokeAllAndLogExceptions(executor, Level.INFO,
-                    "Error during mark passing calculation: %s", tasks);
+            final long invokeAllStartedAt = System.currentTimeMillis();
+            logger.fine(() -> "INVOKE_ALL start" + "; race=" + raceName + "; tasks=" + tasks.size());
+            ThreadPoolUtil.INSTANCE.invokeAllAndLogExceptions(
+                    executor,
+                    Level.INFO,
+                    "Error during mark passing calculation: %s",
+                    tasks);
+            logger.fine(() -> "INVOKE_ALL finished"
+                    + "; race=" + raceName
+                    + "; tasks=" + tasks.size()
+                    + "; elapsedMillis="
+                    + (System.currentTimeMillis() - invokeAllStartedAt));
         }
 
         private class ComputeMarkPassings implements Runnable {
