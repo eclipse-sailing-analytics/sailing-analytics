@@ -96,26 +96,14 @@ public class MarkPassingCalculator {
     private boolean suspended = false;
 
     /**
-     * If the constructor is called with the {@code listen} parameter set to {@code true}, this field will hold a thread
-     * when objects were added to the {@link #queue} and are being processed. When the thread has completed processing
-     * all updates from the {@link #queue} it will terminate and set this field to {@code null}. The decision to create
-     * and stop the thread goes hand in hand with setting or, respectively, clearing this field while holding this
-     * object's monitor ({@code synchronized}).
-     * <p>
-     * 
-     * The thread may not yet have been started because, depending on the constructor's
-     * {@code waitForInitialMarkPassingCalculation} argument, start-up may be asynchronous, but eventually it will be
-     * started at some point. The {@link #waitUntilStopped} method can be used to wait until the thread has started and
-     * then terminated again.
+     * If the constructor is called with the {@code listen} parameter set to {@code true},
+     * this field holds the thread currently processing updates from the {@link #queue}.
+     * When the thread has processed all pending updates, it terminates and sets this
+     * field to {@code null}.
      */
     private Thread listenerThread;
 
     private final Listen listen;
-
-    /**
-     * Synchronized using the {@link #listenerThread} as monitor object.
-     */
-    private boolean listenerThreadStarted;
 
     /**
      * If not {@code null} then upon {@link #resume()} this mark passing calculator will look for a stored set of mark
@@ -170,10 +158,6 @@ public class MarkPassingCalculator {
                 synchronized (MarkPassingCalculator.this) {
                     if (listenerThread == null) {
                         listenerThread = createAndStartListenerThread();
-                        synchronized (listenerThread) {
-                            listenerThreadStarted = true;
-                            listenerThread.notifyAll();
-                        }
                     }
                 }
             }
@@ -208,7 +192,6 @@ public class MarkPassingCalculator {
         result.start();
         logger.fine(() -> "LISTENER started"
                 + "; thread=" + result
-                + "; listenerThreadStarted=" + listenerThreadStarted
                 + "; alive=" + result.isAlive());
         return result;
     }
@@ -229,30 +212,14 @@ public class MarkPassingCalculator {
         final Thread theListenerThread = listenerThread;
         logger.fine(() -> "WAIT entered"
                 + "; listenerThread=" + theListenerThread
-                + "; listenerThreadStarted=" + listenerThreadStarted
                 + "; alive=" + (theListenerThread != null
                         && theListenerThread.isAlive())
                 + "; timeoutMillis=" + timeoutInMillis);
         if (theListenerThread != null) {
-            synchronized (theListenerThread) {
-                while (!listenerThreadStarted
-                        && System.currentTimeMillis() - start < timeoutInMillis) {
-                    logger.fine(() -> "WAIT waiting for listener start"
-                            + "; listenerThread=" + theListenerThread
-                            + "; listenerThreadStarted="
-                            + listenerThreadStarted
-                            + "; alive=" + theListenerThread.isAlive());
-                    theListenerThread.wait(timeoutInMillis);
-                }
-            }
             logger.fine(() -> "WAIT before join"
-                    + "; listenerThreadStarted=" + listenerThreadStarted
-                    + "; alive=" + theListenerThread.isAlive()
-                    + "; elapsedMillis="
-                    + (System.currentTimeMillis() - start));
+                    + "; alive=" + theListenerThread.isAlive());
             theListenerThread.join(timeoutInMillis);
             logger.fine(() -> "WAIT after join"
-                    + "; listenerThreadStarted=" + listenerThreadStarted
                     + "; alive=" + theListenerThread.isAlive()
                     + "; elapsedMillis="
                     + (System.currentTimeMillis() - start));
@@ -318,7 +285,7 @@ public class MarkPassingCalculator {
 
         @Override
         public void run() {
-            logger.fine(() -> "LISTENER run entered" + "; thread=" + Thread.currentThread() + "; listenerThreadStarted=" + listenerThreadStarted);
+            logger.fine(() -> "LISTENER run entered" + "; thread=" + Thread.currentThread());
             try {
                 logger.fine("MarkPassingCalculator is listening on race " + raceName);
                 boolean finished = false;
@@ -472,7 +439,6 @@ public class MarkPassingCalculator {
                 logger.fine(() -> "LISTENER run finished"
                         + "; race=" + raceName
                         + "; thread=" + Thread.currentThread()
-                        + "; listenerThreadStarted=" + listenerThreadStarted
                         + "; listenerThread=" + listenerThread);
             }
         }
