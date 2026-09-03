@@ -28,6 +28,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -294,6 +297,7 @@ import com.sap.sailing.gwt.ui.shared.TypedDeviceMappingDTO;
 import com.sap.sailing.gwt.ui.shared.UrlDTO;
 import com.sap.sailing.gwt.ui.shared.VenueDTO;
 import com.sap.sailing.gwt.ui.shared.WindDTO;
+import com.sap.sailing.gwt.ui.shared.WindInfoForRaceDTO;
 import com.sap.sailing.gwt.ui.shared.YellowBrickConfigurationWithSecurityDTO;
 import com.sap.sailing.gwt.ui.shared.YellowBrickRaceRecordDTO;
 import com.sap.sailing.gwt.ui.shared.courseCreation.CourseTemplateDTO;
@@ -417,6 +421,17 @@ public class SailingServiceWriteImpl extends SailingServiceImpl implements Saili
 
     /** serial version uid */
     private static final long serialVersionUID = -992637440342246674L;
+    
+    private final Map<String, WindLiveSubscription> windLiveSubscriptions;
+    
+    private final ScheduledFuture<?> windLiveSubscriptionCleanupTask;
+    
+    public SailingServiceWriteImpl() {
+        windLiveSubscriptions = new ConcurrentHashMap<>();
+        windLiveSubscriptionCleanupTask = ThreadPoolUtil.INSTANCE
+                .getDefaultBackgroundTaskThreadPoolExecutor()
+                .scheduleAtFixedRate(this::removeIdleWindLiveSubscriptions, 30, 30, TimeUnit.SECONDS);
+    }
 
     // WRITE
     public static class TimeoutExtendingInputStream extends FilterInputStream {
@@ -2133,6 +2148,94 @@ public class SailingServiceWriteImpl extends SailingServiceImpl implements Saili
                 riotServer.removeDevice(existingDevice.getId());
             });
         }
+    }
+    
+    @Override
+    public String startWindLiveSubscription(final Collection<WindSource> windSources) throws Exception {
+        if (windSources == null || windSources.isEmpty()) {
+            throw new IllegalArgumentException("At least one wind source must be selected");
+        }
+        final Map<String, WindSource> igtimiWindSourcesByDeviceSerialNumber = new HashMap<>();
+        for (final WindSource windSource : new HashSet<>(windSources)) {
+            if (windSource == null || windSource.getType() != WindSourceType.EXPEDITION
+                    || !(windSource.getId() instanceof String)) {
+                throw new IllegalArgumentException("Unsupported live wind source " + windSource);
+            }
+            final String serialNumber = (String) windSource.getId();
+            final Device device = getIgtimiDevice(serialNumber);
+            if (device == null) {
+                throw new IllegalArgumentException("Unsupported live wind source " + windSource);
+            }
+            getSecurityService().checkCurrentUserReadPermission(device);
+            if (igtimiWindSourcesByDeviceSerialNumber.put(serialNumber, windSource) != null) {
+                throw new IllegalArgumentException("Duplicate live wind source for Igtimi device " + serialNumber);
+            }
+        }
+        final String ownerName = getCurrentUserNameForWindLiveSubscription();
+        final WindLiveSubscription subscription = new WindLiveSubscription(ownerName);
+        final IgtimiWindLiveSubscriptionFeeder feeder = new IgtimiWindLiveSubscriptionFeeder(subscription,
+                createIgtimiConnection(Optional.empty()), igtimiWindSourcesByDeviceSerialNumber);
+        subscription.addFeeder(feeder);
+        windLiveSubscriptions.put(subscription.getSubscriptionId(), subscription);
+        return subscription.getSubscriptionId();
+    }
+
+    @Override
+    public WindInfoForRaceDTO getWindLiveUpdates(final String subscriptionId) {
+        final String ownerName = getCurrentUserNameForWindLiveSubscription();
+        final WindLiveSubscription subscription = getWindLiveSubscription(subscriptionId);
+        return createWindInfoForWinds(subscription.getAndClearWinds(ownerName));
+    }
+
+    @Override
+    public void stopWindLiveSubscription(final String subscriptionId) throws Exception {
+        final String ownerName = getCurrentUserNameForWindLiveSubscription();
+        final WindLiveSubscription subscription = getWindLiveSubscription(subscriptionId);
+        subscription.stop(ownerName);
+        windLiveSubscriptions.remove(subscriptionId, subscription);
+    }
+    
+    private WindLiveSubscription getWindLiveSubscription(final String subscriptionId) {
+        final WindLiveSubscription subscription = windLiveSubscriptions.get(subscriptionId);
+        if (subscription == null) {
+            throw new IllegalArgumentException("Unknown wind live subscription " + subscriptionId);
+        }
+        return subscription;
+    }
+
+    private String getCurrentUserNameForWindLiveSubscription() {
+        return getSecurityService().getCurrentUser() == null
+                ? null
+                : getSecurityService().getCurrentUser().getName();
+    }
+    
+    private void removeIdleWindLiveSubscriptions() {
+        final TimePoint currentTime = TimePoint.now();
+        for (final Map.Entry<String, WindLiveSubscription> entry : windLiveSubscriptions.entrySet()) {
+            final WindLiveSubscription subscription = entry.getValue();
+            if ((subscription.isIdle(currentTime) || subscription.hasFailedToConnect(currentTime))
+                    && windLiveSubscriptions.remove(entry.getKey(), subscription)) {
+                try {
+                    subscription.stop();
+                } catch (final Exception e) {
+                    logger.log(Level.WARNING,
+                            "Error stopping wind live subscription " + subscription.getSubscriptionId(), e);
+                }
+            }
+        }
+    }
+    
+    @Override
+    public void stop() {
+        windLiveSubscriptionCleanupTask.cancel(false);
+        for (final WindLiveSubscription subscription : windLiveSubscriptions.values()) {
+            try {
+                subscription.stop();
+            } catch (final Exception e) {
+            }
+        }
+        windLiveSubscriptions.clear();
+        super.stop();
     }
     
     private void checkCurrentUserUpdatePermissionForIgtimiDevice(String serialNumber) {

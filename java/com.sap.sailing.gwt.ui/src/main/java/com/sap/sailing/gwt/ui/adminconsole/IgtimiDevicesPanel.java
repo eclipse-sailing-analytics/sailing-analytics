@@ -44,6 +44,9 @@ import com.google.gwt.user.client.ui.TextBox;
 import com.google.gwt.user.client.ui.VerticalPanel;
 import com.google.gwt.user.client.ui.Widget;
 import com.google.gwt.view.client.ListDataProvider;
+import com.sap.sailing.domain.common.WindSource;
+import com.sap.sailing.domain.common.WindSourceType;
+import com.sap.sailing.domain.common.impl.WindSourceWithAdditionalID;
 import com.sap.sailing.domain.common.security.SecuredDomainType;
 import com.sap.sailing.gwt.ui.adminconsole.places.AdminConsoleView.Presenter;
 import com.sap.sailing.gwt.ui.client.DataEntryDialogWithDateTimeBox;
@@ -206,7 +209,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
                 if (Window.confirm(stringMessages.doYouReallyWantToRemoveTheSelectedIgtimiDevices())) {
                     final List<IgtimiDeviceWithSecurityDTO> selected = new ArrayList<>(refreshableDevicesSelectionModel.getSelectedSet());
                     for (IgtimiDeviceWithSecurityDTO device : selected) {
-                        removeDevice(device, filteredDevices);
+                        removeDevice(device);
                     }
                 }
             }
@@ -253,7 +256,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
                 if (Window.confirm(stringMessages.doYouReallyWantToRemoveTheSelectedIgtimiDataAccessWindows())) {
                     final List<IgtimiDataAccessWindowWithSecurityDTO> selected = new ArrayList<>(refreshableDataAccessWindowsSelectionModel.getSelectedSet());
                     for (IgtimiDataAccessWindowWithSecurityDTO daw : selected) {
-                        removeDataAccessWindow(daw, filteredDAWs);
+                        removeDataAccessWindow(daw);
                     }
                 }
             }
@@ -386,7 +389,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         actionColumn.addAction(DevicesImagesBarCell.ACTION_SEND_FREESTYLE_COMMAND, UPDATE, this::sendFreestyleCommands);
         actionColumn.addAction(ACTION_DELETE, DELETE, device -> {
             if (Window.confirm(stringMessages.doYouReallyWantToRemoveIgtimiDevice(device.getSerialNumber()))) {
-                removeDevice(device, filteredDevices);
+                removeDevice(device);
             }
         });
         final DialogConfig<IgtimiDeviceWithSecurityDTO> config = EditOwnershipDialog
@@ -503,7 +506,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
                 new DefaultActionsImagesBarCell(stringMessages), userService);
         actionColumn.addAction(ACTION_DELETE, DELETE, daw -> {
             if (Window.confirm(stringMessages.doYouReallyWantToRemoveIgtimiDataAccessWindow(daw.getSerialNumber(), daw.getFrom().toString(), daw.getTo().toString()))) {
-                removeDataAccessWindow(daw, filteredDAWs);
+                removeDataAccessWindow(daw);
             }
         });
         final DialogConfig<IgtimiDataAccessWindowWithSecurityDTO> config = EditOwnershipDialog
@@ -528,8 +531,10 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
 
     private void updateIgtimiWindChart(final CaptionPanel windChartCaptionPanel) {
         final Set<String> selectedSerialNumbers = new HashSet<>();
+        final Set<WindSource> selectedWindSources = new HashSet<>();
         for (final IgtimiDeviceWithSecurityDTO device : refreshableDevicesSelectionModel.getSelectedSet()) {
             selectedSerialNumbers.add(device.getSerialNumber());
+            selectedWindSources.add(new WindSourceWithAdditionalID(WindSourceType.EXPEDITION, device.getSerialNumber()));
         }
         final int selectionVersion = ++igtimiWindSelectionVersion;
         stopIgtimiWindLiveSubscription();
@@ -539,16 +544,16 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         shownDeviceSerialNumbers.clear();
         windChartCaptionPanel.setVisible(!selectedSerialNumbers.isEmpty());
         if (!selectedSerialNumbers.isEmpty()) {
-            sailingServiceWrite.startIgtimiWindLiveSubscription(
-                    selectedSerialNumbers,
-                    new AsyncCallback<Pair<String, Date>>() {
+            sailingServiceWrite.startWindLiveSubscription(
+                    selectedWindSources,
+                    new AsyncCallback<String>() {
                         @Override
-                        public void onSuccess(final Pair<String, Date> result) {
+                        public void onSuccess(final String subscriptionId) {
                             if (selectionVersion != igtimiWindSelectionVersion) {
-                                stopIgtimiWindLiveSubscription(result.getA());
+                                stopIgtimiWindLiveSubscription(subscriptionId);
                             } else {
-                                igtimiWindLiveSubscriptionId = result.getA();
-                                loadIgtimiWindHistory(selectedSerialNumbers, result.getB(), selectionVersion);
+                                igtimiWindLiveSubscriptionId = subscriptionId;
+                                loadIgtimiWindHistory(selectedSerialNumbers, new Date(), selectionVersion);
                             }
                         }
                         @Override
@@ -611,7 +616,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         if (subscriptionId != null
                 && !subscriptionId.equals(igtimiWindLiveUpdateRequestPendingSubscriptionId)) {
             igtimiWindLiveUpdateRequestPendingSubscriptionId = subscriptionId;
-            sailingServiceWrite.getIgtimiWindLiveUpdates(
+            sailingServiceWrite.getWindLiveUpdates(
                     subscriptionId,
                     new AsyncCallback<WindInfoForRaceDTO>() {
                         @Override
@@ -647,7 +652,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
     }
 
     private void stopIgtimiWindLiveSubscription(final String subscriptionId) {
-        sailingServiceWrite.stopIgtimiWindLiveSubscription(
+        sailingServiceWrite.stopWindLiveSubscription(
                 subscriptionId,
                 new AsyncCallback<Void>() {
                     @Override
@@ -815,8 +820,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         new AddDataAccessWindowDialog(this::refreshDataAccessWindows, sailingServiceWrite, stringMessages, errorReporter).show();
     }
 
-    private void removeDevice(final IgtimiDeviceWithSecurityDTO device,
-            final ListDataProvider<IgtimiDeviceWithSecurityDTO> removeFrom) {
+    private void removeDevice(final IgtimiDeviceWithSecurityDTO device) {
         sailingServiceWrite.removeIgtimiDevice(device.getId(), new AsyncCallback<Void>() {
             @Override
             public void onFailure(Throwable caught) {
@@ -827,13 +831,12 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
             public void onSuccess(Void result) {
                 Notification.notify(stringMessages.successfullyRemoveIgtimiDevice(device.getSerialNumber()),
                         NotificationType.INFO);
-                removeFrom.getList().remove(device);
+                filterDevicesPanel.remove(device);
             }
         });
     }
 
-    private void removeDataAccessWindow(final IgtimiDataAccessWindowWithSecurityDTO daw,
-            final ListDataProvider<IgtimiDataAccessWindowWithSecurityDTO> removeFrom) {
+    private void removeDataAccessWindow(final IgtimiDataAccessWindowWithSecurityDTO daw) {
         sailingServiceWrite.removeIgtimiDataAccessWindow(daw.getId(), new AsyncCallback<Void>() {
             @Override
             public void onFailure(Throwable caught) {
@@ -843,7 +846,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
             @Override
             public void onSuccess(Void result) {
                 Notification.notify(stringMessages.successfullyRemovedIgtimiDataAccessWindow(Long.toString(daw.getId())), NotificationType.INFO);
-                removeFrom.getList().remove(daw);
+                filterDataAccessWindowPanel.remove(daw);
             }
         });
     }

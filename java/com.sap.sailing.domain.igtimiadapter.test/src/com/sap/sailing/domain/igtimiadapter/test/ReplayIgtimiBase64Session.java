@@ -14,6 +14,8 @@ import java.util.Map;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Message;
 import com.igtimi.IgtimiStream.Msg;
+import com.sap.sailing.domain.igtimiadapter.FixFactory;
+import com.sap.sailing.domain.igtimiadapter.datatypes.Fix;
 
 /**
  * Replays the bundled WindBot recording ({@code windbot_session_20250107.base64}) through a local
@@ -36,6 +38,7 @@ public class ReplayIgtimiBase64Session {
     private static final int DEFAULT_NUMBER_OF_MESSAGES = 150;
     private static final String SHIFT_TO_NOW_ARGUMENT = "now";
     private static final String REALTIME_ARGUMENT = "realtime";
+    private static final FixFactory FIX_FACTORY = new FixFactory();
 
     private static long calculateTimestampOffsetToNow(final Iterable<Msg> messages) {
         return System.currentTimeMillis() - 1000L - getLatestTimestamp(messages);
@@ -112,27 +115,10 @@ public class ReplayIgtimiBase64Session {
         return earliestTimestamp;
     }
 
-    private static long getLatestTimestamp(final Message message) {
+    private static long getLatestTimestamp(final Msg message) {
         long latestTimestamp = Long.MIN_VALUE;
-        for (final Map.Entry<FieldDescriptor, Object> field : message.getAllFields().entrySet()) {
-            final FieldDescriptor descriptor = field.getKey();
-            if (descriptor.getJavaType() == FieldDescriptor.JavaType.LONG && "timestamp".equals(descriptor.getName())) {
-                if (descriptor.isRepeated()) {
-                    for (final Object value : (List<?>) field.getValue()) {
-                        latestTimestamp = Math.max(latestTimestamp, (Long) value);
-                    }
-                } else {
-                    latestTimestamp = Math.max(latestTimestamp, (Long) field.getValue());
-                }
-            } else if (descriptor.getJavaType() == FieldDescriptor.JavaType.MESSAGE) {
-                if (descriptor.isRepeated()) {
-                    for (final Object value : (List<?>) field.getValue()) {
-                        latestTimestamp = Math.max(latestTimestamp, getLatestTimestamp((Message) value));
-                    }
-                } else {
-                    latestTimestamp = Math.max(latestTimestamp, getLatestTimestamp((Message) field.getValue()));
-                }
-            }
+        for (final Fix fix : FIX_FACTORY.createFixes(message)) {
+            latestTimestamp = Math.max(latestTimestamp, fix.getTimePoint().asMillis());
         }
         return latestTimestamp;
     }

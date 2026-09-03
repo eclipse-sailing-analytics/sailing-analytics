@@ -47,8 +47,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RunnableFuture;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
@@ -615,15 +613,10 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
 
     private final QuickRanksLiveCache quickRanksLiveCache;
     
-    private final Map<String, IgtimiWindLiveSubscription> igtimiWindLiveSubscriptions;
-    
-    private final ScheduledFuture<?> igtimiWindLiveSubscriptionCleanupTask;
-
     public SailingServiceImpl() {
         BundleContext context = Activator.getDefault();
         Activator activator = Activator.getInstance();
         quickRanksLiveCache = new QuickRanksLiveCache(this);
-        igtimiWindLiveSubscriptions = new ConcurrentHashMap<>();
         replicationServiceTracker = ServiceTrackerFactory.createAndOpen(context, ReplicationService.class);
         brandingConfigurationServiceTracker = ServiceTrackerFactory.createAndOpen(context, BrandingConfigurationService.class);
         racingEventServiceTracker = FullyInitializedReplicableTracker.createAndOpen(context, RacingEventService.class);
@@ -675,13 +668,6 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
         executor = ThreadPoolUtil.INSTANCE.getDefaultForegroundTaskThreadPoolExecutor();
         serverStringMessages = ResourceBundleStringMessages.create(STRING_MESSAGES_BASE_NAME,
                 this.getClass().getClassLoader(), StandardCharsets.UTF_8.name());
-        igtimiWindLiveSubscriptionCleanupTask =
-                ThreadPoolUtil.INSTANCE.getDefaultBackgroundTaskThreadPoolExecutor()
-                        .scheduleAtFixedRate(
-                                this::removeIdleIgtimiWindLiveSubscriptions,
-                                30,
-                                30,
-                                TimeUnit.SECONDS);
         if (context != null) {
             activator.setSailingService(this); // register so this service is informed when the bundle shuts down
         }
@@ -693,16 +679,6 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
      */
     public void stop() {
         quickRanksLiveCache.stop();
-        igtimiWindLiveSubscriptionCleanupTask.cancel(false);
-        for (final IgtimiWindLiveSubscription subscription : igtimiWindLiveSubscriptions.values()) {
-            try {
-                subscription.stop();
-            } catch (final Exception e) {
-                logger.log(Level.WARNING,
-                        "Error stopping Igtimi wind live subscription " + subscription.getSubscriptionId(), e);
-            }
-        }
-        igtimiWindLiveSubscriptions.clear();
     }
 
     protected SwissTimingAdapterFactory getSwissTimingAdapterFactory() {
@@ -1684,9 +1660,9 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
     @Override
     public WindInfoForRaceDTO getWindInfoForIgtimiDevice(final String serialNumber, final Date from, final Date to) {
         checkCurrentUserReadPermissionForIgtimiDevice(serialNumber);
-        final Map<String, List<Wind>> windsByDeviceSerialNumber = new HashMap<>();
+        final Map<WindSource, List<Wind>> windsByWindSource = new HashMap<>();
         final List<Wind> winds = new ArrayList<>();
-        windsByDeviceSerialNumber.put(serialNumber, winds);
+        windsByWindSource.put(new WindSourceWithAdditionalID(WindSourceType.EXPEDITION, serialNumber), winds);
         final IgtimiWindReceiver windReceiver = new IgtimiWindReceiver(/* no declination correction */ null);
         windReceiver.addListener((final Wind wind, final Set<Fix> fixesUsed, final String deviceSerialNumber) -> winds.add(wind));
         final IgtimiConnection connection = createIgtimiConnection(Optional.empty());
@@ -1695,75 +1671,7 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
         } catch (final IOException | org.json.simple.parser.ParseException e) {
             throw new RuntimeException("Error reading Igtimi resource data for device " + serialNumber, e);
         }
-        return createWindInfoForIgtimiWinds(windsByDeviceSerialNumber);
-    }
-    
-    @Override
-    public Pair<String, Date> startIgtimiWindLiveSubscription(final Collection<String> serialNumbers) throws Exception {
-        if (serialNumbers == null || serialNumbers.isEmpty()) {
-            throw new IllegalArgumentException("At least one Igtimi device must be selected");
-        }
-        final Set<String> uniqueSerialNumbers = new HashSet<>(serialNumbers);
-        for (final String serialNumber : uniqueSerialNumbers) {
-            checkCurrentUserReadPermissionForIgtimiDevice(serialNumber);
-        }
-        final String ownerName = getCurrentUserNameForIgtimiWindLiveSubscription();
-        final IgtimiWindLiveSubscription subscription =
-                new IgtimiWindLiveSubscription(ownerName, createIgtimiConnection(Optional.empty()), uniqueSerialNumbers);
-        try {
-            if (!subscription.waitForConnection(ownerName, 5000l)) {
-                throw new IOException("Igtimi live connection could not be established within 5 seconds");
-            }
-            igtimiWindLiveSubscriptions.put(subscription.getSubscriptionId(), subscription);
-            return new Pair<>(subscription.getSubscriptionId(), new Date());
-        } catch (final Exception e) {
-            subscription.stop();
-            throw e;
-        }
-    }
-
-    @Override
-    public WindInfoForRaceDTO getIgtimiWindLiveUpdates(final String subscriptionId) {
-        final String ownerName = getCurrentUserNameForIgtimiWindLiveSubscription();
-        final IgtimiWindLiveSubscription subscription = getIgtimiWindLiveSubscription(subscriptionId);
-        return createWindInfoForIgtimiWinds(subscription.getAndClearWinds(ownerName));
-    }
-
-    @Override
-    public void stopIgtimiWindLiveSubscription(final String subscriptionId) throws Exception {
-        final String ownerName = getCurrentUserNameForIgtimiWindLiveSubscription();
-        final IgtimiWindLiveSubscription subscription = getIgtimiWindLiveSubscription(subscriptionId);
-        subscription.stop(ownerName);
-        igtimiWindLiveSubscriptions.remove(subscriptionId, subscription);
-    }
-    
-    private void removeIdleIgtimiWindLiveSubscriptions() {
-        final long currentTimeInMilliseconds = System.currentTimeMillis();
-        for (final Map.Entry<String, IgtimiWindLiveSubscription> entry : igtimiWindLiveSubscriptions.entrySet()) {
-            final IgtimiWindLiveSubscription subscription = entry.getValue();
-            if (subscription.isIdle(currentTimeInMilliseconds) && igtimiWindLiveSubscriptions.remove(entry.getKey(), subscription)) {
-                try {
-                    subscription.stop();
-                } catch (final Exception e) {
-                    logger.log(Level.WARNING, "Error stopping idle Igtimi wind live subscription " + subscription.getSubscriptionId(), e);
-                }
-            }
-        }
-    }
-    
-    private IgtimiWindLiveSubscription getIgtimiWindLiveSubscription(final String subscriptionId) {
-        final IgtimiWindLiveSubscription subscription = igtimiWindLiveSubscriptions.get(subscriptionId);
-        if (subscription == null) {
-            throw new IllegalArgumentException("Unknown Igtimi wind live subscription " + subscriptionId);
-        }
-        return subscription;
-    }
-
-    private String getCurrentUserNameForIgtimiWindLiveSubscription() {
-        if (getSecurityService().getCurrentUser() == null) {
-            throw new UnauthorizedException("No authenticated user for Igtimi wind live subscription");
-        }
-        return getSecurityService().getCurrentUser().getName();
+        return createWindInfoForWinds(windsByWindSource);
     }
 
     private void checkCurrentUserReadPermissionForIgtimiDevice(final String serialNumber) {
@@ -1773,19 +1681,18 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
         }
     }
     
-    private WindInfoForRaceDTO createWindInfoForIgtimiWinds(final Map<String, ? extends Iterable<Wind>> windsByDeviceSerialNumber) {
+    protected WindInfoForRaceDTO createWindInfoForWinds(final Map<WindSource, ? extends Iterable<Wind>> windsByWindSource) {
         final WindInfoForRaceDTO result = new WindInfoForRaceDTO();
         result.windTrackInfoByWindSource = new HashMap<>();
         result.windSourcesToExclude = new ArrayList<>();
-        for (final Map.Entry<String, ? extends Iterable<Wind>> entry : windsByDeviceSerialNumber.entrySet()) {
+        for (final Map.Entry<WindSource, ? extends Iterable<Wind>> entry : windsByWindSource.entrySet()) {
             final WindTrackInfoDTO trackInfo = new WindTrackInfoDTO();
             trackInfo.windFixes = new ArrayList<>();
             trackInfo.dampeningIntervalInMilliseconds = 0;
             for (final Wind wind : entry.getValue()) {
                 trackInfo.windFixes.add(createWindDTOFromAlreadyAveraged(wind, wind.getTimePoint()));
             }
-            result.windTrackInfoByWindSource.put(
-                    new WindSourceWithAdditionalID(WindSourceType.EXPEDITION, entry.getKey()), trackInfo);
+            result.windTrackInfoByWindSource.put(entry.getKey(), trackInfo);
         }
         return result;
     }

@@ -150,11 +150,6 @@ public interface SailingService extends RemoteService, RemoteReplicationService 
 
     WindInfoForRaceDTO getWindInfoForIgtimiDevice(String serialNumber, Date from, Date to)
             throws UnauthorizedException;
-    Pair<String, Date> startIgtimiWindLiveSubscription(Collection<String> serialNumbers) throws Exception;
-
-    WindInfoForRaceDTO getIgtimiWindLiveUpdates(String subscriptionId) throws UnauthorizedException;
-
-    void stopIgtimiWindLiveSubscription(String subscriptionId) throws Exception;
 
     boolean getPolarResults(RegattaAndRaceIdentifier raceIdentifier) throws UnauthorizedException;
 

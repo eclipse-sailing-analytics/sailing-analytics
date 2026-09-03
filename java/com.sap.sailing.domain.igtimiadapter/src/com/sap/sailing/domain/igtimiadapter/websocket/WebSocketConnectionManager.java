@@ -114,6 +114,11 @@ public class WebSocketConnectionManager implements LiveDataConnection {
         }
     }
     
+    @Override
+    public synchronized boolean isConnected() {
+        return igtimiServerTimepoint != null;
+    }
+    
     public void stop() throws Exception {
         logger.info("Stopping connection mananager "+this);
         targetState = TargetState.CLOSED;

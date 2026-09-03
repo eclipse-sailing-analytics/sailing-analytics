@@ -89,6 +89,7 @@ import com.sap.sailing.gwt.ui.shared.TypedDeviceMappingDTO;
 import com.sap.sailing.gwt.ui.shared.UrlDTO;
 import com.sap.sailing.gwt.ui.shared.VenueDTO;
 import com.sap.sailing.gwt.ui.shared.WindDTO;
+import com.sap.sailing.gwt.ui.shared.WindInfoForRaceDTO;
 import com.sap.sailing.gwt.ui.shared.YellowBrickConfigurationWithSecurityDTO;
 import com.sap.sailing.gwt.ui.shared.YellowBrickRaceRecordDTO;
 import com.sap.sailing.gwt.ui.shared.courseCreation.CourseTemplateDTO;
@@ -269,6 +270,25 @@ public interface SailingServiceWrite extends FileStorageManagementGwtService, Sa
     boolean enableIgtimiDeviceOverTheAirLog(String serialNumber, boolean enable) throws Exception;
     
     ArrayList<Pair<TimePoint, String>> getIgtimiDeviceLogs(String serialNumber, Duration duration) throws Exception;
+    
+    /**
+     * Starts a live subscription for the requested wind sources. The subscription is maintained by the write service
+     * so its state remains on the primary server.
+     *
+     * @return an opaque subscription ID used to obtain updates and stop the subscription
+     */
+    String startWindLiveSubscription(Collection<WindSource> windSources) throws Exception;
+
+    /**
+     * Returns and removes the wind fixes currently buffered for the subscription identified by
+     * {@code subscriptionId}.
+     */
+    WindInfoForRaceDTO getWindLiveUpdates(String subscriptionId);
+
+    /**
+     * Stops the subscription identified by {@code subscriptionId} and releases its live-data resources.
+     */
+    void stopWindLiveSubscription(String subscriptionId) throws Exception;
     
     void setTrackingTimes(RaceLogSetTrackingTimesDTO dto) throws NotFoundException;
 

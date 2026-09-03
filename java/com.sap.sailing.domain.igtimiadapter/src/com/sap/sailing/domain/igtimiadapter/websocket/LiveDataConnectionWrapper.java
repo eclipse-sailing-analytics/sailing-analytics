@@ -32,6 +32,11 @@ public class LiveDataConnectionWrapper implements LiveDataConnection {
     }
 
     @Override
+    public boolean isConnected() {
+        return actualConnection.isConnected();
+    }
+    
+    @Override
     public void addListener(BulkFixReceiver listener) {
         actualConnection.addListener(listener);
     }

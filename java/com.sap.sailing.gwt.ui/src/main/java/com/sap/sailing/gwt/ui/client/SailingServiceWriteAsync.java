@@ -77,6 +77,7 @@ import com.sap.sailing.gwt.ui.shared.TypedDeviceMappingDTO;
 import com.sap.sailing.gwt.ui.shared.UrlDTO;
 import com.sap.sailing.gwt.ui.shared.VenueDTO;
 import com.sap.sailing.gwt.ui.shared.WindDTO;
+import com.sap.sailing.gwt.ui.shared.WindInfoForRaceDTO;
 import com.sap.sailing.gwt.ui.shared.YellowBrickConfigurationWithSecurityDTO;
 import com.sap.sailing.gwt.ui.shared.YellowBrickRaceRecordDTO;
 import com.sap.sailing.gwt.ui.shared.courseCreation.CourseTemplateDTO;
@@ -639,6 +640,12 @@ public interface SailingServiceWriteAsync extends FileStorageManagementGwtServic
     void enableIgtimiDeviceOverTheAirLog(String deviceSerialNumber, boolean enable, AsyncCallback<Boolean> asyncCallback);
     
     void getIgtimiDeviceLogs(String serialNumber, Duration duration, AsyncCallback<ArrayList<Pair<TimePoint, String>>> asyncCallback);
+    
+    void startWindLiveSubscription(Collection<WindSource> windSources, AsyncCallback<String> callback);
+
+    void getWindLiveUpdates(String subscriptionId, AsyncCallback<WindInfoForRaceDTO> callback);
+
+    void stopWindLiveSubscription(String subscriptionId, AsyncCallback<Void> callback);
 
     /**
      * @return {@code true} if the race was not yet denoted for race log tracking and now has successfully been denoted

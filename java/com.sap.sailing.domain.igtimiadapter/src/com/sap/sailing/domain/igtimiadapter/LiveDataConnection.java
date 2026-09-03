@@ -17,6 +17,11 @@ public interface LiveDataConnection {
      */
     boolean waitForConnection(long timeoutInMillis) throws InterruptedException;
     
+    /**
+     * Returns whether the connection has successfully completed its initial handshake.
+     */
+    boolean isConnected();
+    
     void addListener(BulkFixReceiver listener);
     
     void removeListener(BulkFixReceiver listener);
