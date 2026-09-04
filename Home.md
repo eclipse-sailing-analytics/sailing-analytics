@@ -69,7 +69,7 @@ SAP is at the center of today’s technology revolution, developing innovations 
   * [[EC2 mail relaying vs. Amazon Simple E-Mail Service (SES)|wiki/info/landscape/mail-relaying]]
   * [[Establishing support@sapsailing.com with AWS SES, SNS, and Lambda|wiki/info/landscape/support-email]]
   * [[Creating an EC2 image for a MongoDB Replica Set from scratch|wiki/info/landscape/creating-ec2-mongodb-image-from-scratch]]
-  * [[Creating an EC2 image for a MongoDB Replica Set from scratch|wiki/info/landscape/creating-ec2-mongodb-image-from-scratch]]
+  * [[Map Providers: Google Maps and MapLibre Tile Servers|wiki/info/landscape/map-providers-google-and-maplibre]]
   * [[Setting up dedicated S3 buckets|wiki/info/landscape/s3-bucket-setup]]
   * [[Large-Scale Set-Ups, e.g., Olympic Games|wiki/info/landscape/tokyo2020/olympic-setup]]
 * [[Log File Analysis|wiki/howto/development/Log-File-Analysis]]
