@@ -83,6 +83,7 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
     private final WindChartSettings settings;
     private final WindChartLifecycle windChartLifecycle;
     
+    private final WindChartDataRenderer windChartDataRenderer;
     /**
      * Holds one series for each wind source for which data has been received.
      */
@@ -90,7 +91,6 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
     private final Map<WindSource, Series> windSourceSpeedSeries;
     private final Map<WindSource, Point[]> windSourceDirectionPoints;
     private final Map<WindSource, Point[]> windSourceSpeedPoints;
-    private Point firstPointOfFirstSeries;
     private final Map<WindSource, PlotLine> directionAvgPlotLines = new HashMap<WindSource, PlotLine>();
     private final Map<WindSource, PlotLine> directionMinPlotLines = new HashMap<WindSource, PlotLine>();
     private final Map<WindSource, PlotLine> directionMaxPlotLines = new HashMap<WindSource, PlotLine>();
@@ -100,13 +100,10 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
     private final Map<WindSource, DirectionStatAccumulator> directionAccumulators = new HashMap<WindSource, DirectionStatAccumulator>();
     private final Map<WindSource, SpeedStatAccumulator> speedAccumulators = new HashMap<WindSource, SpeedStatAccumulator>();
     
-    private Long timeOfEarliestRequestInMillis;
-    private Long timeOfLatestRequestInMillis;
-
     private final ColorMapImpl<WindSource> colorMap;
 
     private WindSource preselectFilter;
-
+    
     /**
      * @param selectedRaceIdentifier
      *            if <code>null</code>, this chart won't update its contents automatically upon race selection change;
@@ -124,12 +121,6 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
                 asyncActionsExecutor, errorReporter);
         this.windChartLifecycle = windChartLifecycle;
         this.settings = settings;
-        windSourceDirectionSeries = new HashMap<WindSource, Series>();
-        windSourceSpeedSeries = new HashMap<WindSource, Series>();
-        windSourceDirectionPoints = new HashMap<WindSource, Point[]>();
-        windSourceSpeedPoints = new HashMap<WindSource, Point[]>();
-        firstPointOfFirstSeries = null;
-        colorMap = new ColorMapImpl<WindSource>();
         chart = new Chart()
                 .setPersistent(true)
                 .setReflow(false)
@@ -219,6 +210,29 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
                  .setChartSubtitle(null)
                  .getXAxis().setAxisTitle(null);
         }
+        windChartDataRenderer = new WindChartDataRenderer(
+                chart,
+                stringMessages,
+                MAX_SERIES_POINTS,
+                /* addSeriesToChartOnCreation */ false,
+                new WindChartDataRenderer.SeriesPointsUpdater() {
+                    @Override
+                    public void setSeriesPoints(final Series series, final Point[] points) {
+                        WindChart.this.setSeriesPoints(series, points, /* manageZoom */ true);
+                    }
+                },
+                new WindChartDataRenderer.PointsAddedHandler() {
+                    @Override
+                    public void onPointsAdded(final WindSource windSource, final boolean append,
+                            final Point[] directionPoints, final Point[] speedPoints) {
+                        updateStatistics(windSource, append, directionPoints, speedPoints);
+                    }
+                });
+        windSourceDirectionSeries = windChartDataRenderer.getWindSourceDirectionSeries();
+        windSourceSpeedSeries = windChartDataRenderer.getWindSourceSpeedSeries();
+        windSourceDirectionPoints = windChartDataRenderer.getWindSourceDirectionPoints();
+        windSourceSpeedPoints = windChartDataRenderer.getWindSourceSpeedPoints();
+        colorMap = windChartDataRenderer.getColorMap();
         setSize("100%", "100%");
         if (selectedRaceIdentifier != null) {
             clearCacheAndReload();
@@ -320,157 +334,37 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
     }
 
     /**
-     * Creates the series for the <code>windSource</code> specified. If the series is created and needs to be visible
-     * based on the {@link #windDirectionSourcesToDisplay}, it is added to the chart.
-     */
-    private Series getOrCreateSpeedSeries(WindSource windSource) {
-        Series result = windSourceSpeedSeries.get(windSource);
-        if (result == null) {
-            result = createSpeedSeries(windSource);
-            windSourceSpeedSeries.put(windSource, result);
-        }
-        return result;
-    }
-
-    /**
-     * Creates the series for the <code>windSource</code> specified. If the series is created and needs to be visible
-     * based on the {@link #windDirectionSourcesToDisplay}, it is added to the chart.
-     */
-    private Series getOrCreateDirectionSeries(WindSource windSource) {
-        Series result = windSourceDirectionSeries.get(windSource);
-        if (result == null) {
-            result = createDirectionSeries(windSource);
-            windSourceDirectionSeries.put(windSource, result);
-        }
-        return result;
-    }
-
-
-    /**
-     * Only creates the series but doesn't add it to the chart. See also {@link #getOrCreateDirectionSeries(WindSource)} and
-     * {@link #updateVisibleSeries()}
-     */
-    private Series createDirectionSeries(WindSource windSource) {
-        Series newSeries = chart
-                .createSeries()
-                .setType(Series.Type.LINE)
-                .setName(stringMessages.fromDeg()+" "+WindSourceTypeFormatter.format(windSource, stringMessages))
-                .setYAxis(0)
-                .setOption("turboThreshold", MAX_SERIES_POINTS)
-                .setPlotOptions(new LinePlotOptions().setColor(colorMap.getColorByID(windSource).getAsHtml()).setSelected(true));
-        return newSeries;
-    }
-
-    /**
-     * Only creates the series but doesn't add it to the chart. See also {@link #getOrCreateSpeedSeries(WindSource)} and
-     * {@link #updateVisibleSeries()}
-     */
-    private Series createSpeedSeries(WindSource windSource) {
-        Series newSeries = chart
-                .createSeries()
-                .setType(Series.Type.LINE)
-                .setName(stringMessages.windSpeed()+" "+WindSourceTypeFormatter.format(windSource, stringMessages))
-                .setYAxis(1) // use the second Y-axis
-                .setOption("turboThreshold", MAX_SERIES_POINTS)
-                .setPlotOptions(new LinePlotOptions().setDashStyle(PlotLine.DashStyle.SHORT_DOT)
-                        .setLineWidth(3).setHoverStateLineWidth(3)
-                        .setColor(colorMap.getColorByID(windSource).getAsHtml()).setSelected(true)); // show only the markers, not the connecting lines
-        return newSeries;
-    }
-
-    /**
      * Updates the wind charts with the wind data from <code>result</code>. If <code>append</code> is <code>true</code>, previously
      * existing points in the chart are left unchanged. Otherwise, the existing wind series are replaced.
      */
     public void updateChartSeries(WindInfoForRaceDTO result, boolean append) {
-        final NumberFormat numberFormat = NumberFormat.getFormat("0");
-        Long newMinTimepoint = timeOfEarliestRequestInMillis;
-        Long newMaxTimepoint = timeOfLatestRequestInMillis;
-        for (final WindSource windSource: result.windTrackInfoByWindSource.keySet()) {
-            final WindTrackInfoDTO windTrackInfo = result.windTrackInfoByWindSource.get(windSource);
-            final Series directionSeries = getOrCreateDirectionSeries(windSource);
-            final Series speedSeries = windSource.getType().useSpeed() ? getOrCreateSpeedSeries(windSource) : null;
-            Point previousDirectionPoint = null;
-            if (append && windSourceDirectionPoints.get(windSource) != null
-                       && windSourceDirectionPoints.get(windSource).length != 0) {
-                previousDirectionPoint = windSourceDirectionPoints.get(windSource)[windSourceDirectionPoints.get(windSource).length - 1];
-            }
-            final Point[] directionPoints = new Point[windTrackInfo.windFixes.size()];
-            final Point[] speedPoints = new Point[windTrackInfo.windFixes.size()];
-            int currentPointIndex = 0;
-            if (!append) {
-                directionAccumulators.put(windSource, new DirectionStatAccumulator());
-                if (windSource.getType().useSpeed()) {
-                    speedAccumulators.put(windSource, new SpeedStatAccumulator());
-                }
-            }
-            final DirectionStatAccumulator dirAccumulator = directionAccumulators.computeIfAbsent(windSource, s -> new DirectionStatAccumulator());
-            final SpeedStatAccumulator spdAccumulator = windSource.getType().useSpeed() ? speedAccumulators.computeIfAbsent(windSource, s -> new SpeedStatAccumulator()) : null;
-            for (final WindDTO wind : windTrackInfo.windFixes) {
-                if (newMinTimepoint == null || wind.requestTimepoint < newMinTimepoint) {
-                    newMinTimepoint = wind.requestTimepoint;
-                }
-                if (newMaxTimepoint == null || wind.requestTimepoint > newMaxTimepoint) {
-                    newMaxTimepoint = wind.requestTimepoint;
-                }
-                // if we are in non appending mode, the data is the truth, use all of it without filtering
-                if (!append || ((timeOfEarliestRequestInMillis == null || wind.requestTimepoint < timeOfEarliestRequestInMillis) || 
-                    timeOfLatestRequestInMillis == null || wind.requestTimepoint > timeOfLatestRequestInMillis)) {
-                    Point newDirectionPoint = new Point(wind.requestTimepoint, wind.dampenedTrueWindFromDeg);
-                    if (wind.dampenedTrueWindSpeedInKnots != null) {
-                        String name = numberFormat.format(wind.dampenedTrueWindSpeedInKnots)+ stringMessages.knotsUnit();
-                        // name += " Confidence:" + wind.confidence;
-                        newDirectionPoint.setName(name);
-                    }
-                    if (previousDirectionPoint != null) {
-                        newDirectionPoint = ChartPointRecalculator.stayClosestToPreviousPoint(previousDirectionPoint,
-                                newDirectionPoint);
-                    } else if (firstPointOfFirstSeries != null && windSourceDirectionPoints.get(windSource) == null) {
-                        //This Point is the first point of a new series
-                        newDirectionPoint = ChartPointRecalculator.stayClosestToPreviousPoint(firstPointOfFirstSeries, newDirectionPoint);
-                    }
-                    directionPoints[currentPointIndex] = newDirectionPoint;
-                    previousDirectionPoint = newDirectionPoint;
-                    if (wind.dampenedTrueWindFromDeg != null) {
-                        dirAccumulator.add(newDirectionPoint.getY().doubleValue());
-                    }
-                    final Point newSpeedPoint = new Point(wind.requestTimepoint, wind.dampenedTrueWindSpeedInKnots);
-                    speedPoints[currentPointIndex++] = newSpeedPoint;
-                    if (spdAccumulator != null && wind.dampenedTrueWindSpeedInKnots != null) {
-                        spdAccumulator.add(wind.dampenedTrueWindSpeedInKnots);
-                    }
-                }
-            }
-            Point[] newDirectionPoints;
-            Point[] newSpeedPoints = null;
-            if (append) {
-                Point[] oldDirectionPoints = windSourceDirectionPoints.get(windSource) != null ? windSourceDirectionPoints.get(windSource) : new Point[0];
-                newDirectionPoints = new Point[oldDirectionPoints.length + currentPointIndex];
-                System.arraycopy(oldDirectionPoints, 0, newDirectionPoints, 0, oldDirectionPoints.length);
-                System.arraycopy(directionPoints, 0, newDirectionPoints, oldDirectionPoints.length, currentPointIndex);
-                if (windSource.getType().useSpeed()) {
-                    Point[] oldSpeedPoints =  windSourceSpeedPoints.get(windSource) != null ? windSourceSpeedPoints.get(windSource) : new Point[0];
-                    newSpeedPoints = new Point[oldSpeedPoints.length + currentPointIndex];
-                    System.arraycopy(oldSpeedPoints, 0, newSpeedPoints, 0, oldSpeedPoints.length);
-                    System.arraycopy(speedPoints, 0, newSpeedPoints, oldSpeedPoints.length, currentPointIndex);
-                }
-            } else {
-                newDirectionPoints = directionPoints;
-                newSpeedPoints = speedPoints;
-            }
-            setSeriesPoints(directionSeries, newDirectionPoints, /* manageZoom */ true);
-            windSourceDirectionPoints.put(windSource, newDirectionPoints);
+        windChartDataRenderer.updateChartSeries(result, append);
+    }
+
+    private void updateStatistics(final WindSource windSource, final boolean append, final Point[] directionPoints,
+            final Point[] speedPoints) {
+        if (!append) {
+            directionAccumulators.put(windSource, new DirectionStatAccumulator());
             if (windSource.getType().useSpeed()) {
-                setSeriesPoints(speedSeries, newSpeedPoints, /* manageZoom */ true);
-                windSourceSpeedPoints.put(windSource, newSpeedPoints);
-            }
-            if (firstPointOfFirstSeries == null && newDirectionPoints.length != 0) { //If firstPointOfFirstSeries is null, than this series is the first
-                firstPointOfFirstSeries = newDirectionPoints[0];
+                speedAccumulators.put(windSource, new SpeedStatAccumulator());
             }
         }
-        
-        timeOfEarliestRequestInMillis = newMinTimepoint;
-        timeOfLatestRequestInMillis = newMaxTimepoint;
+        final DirectionStatAccumulator dirAccumulator = directionAccumulators.computeIfAbsent(windSource,
+                s -> new DirectionStatAccumulator());
+        final SpeedStatAccumulator spdAccumulator = windSource.getType().useSpeed()
+                ? speedAccumulators.computeIfAbsent(windSource, s -> new SpeedStatAccumulator()) : null;
+        for (final Point directionPoint : directionPoints) {
+            if (directionPoint.getY() != null) {
+                dirAccumulator.add(directionPoint.getY().doubleValue());
+            }
+        }
+        if (spdAccumulator != null && speedPoints != null) {
+            for (final Point speedPoint : speedPoints) {
+                if (speedPoint.getY() != null) {
+                    spdAccumulator.add(speedPoint.getY().doubleValue());
+                }
+            }
+        }
     }
 
     @Override
@@ -553,14 +447,18 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
         }
     }
 
+    private Long getTimeOfEarliestRequestInMillis() {
+        return windChartDataRenderer.getTimeOfEarliestRequestInMillis();
+    }
+
+    private Long getTimeOfLatestRequestInMillis() {
+        return windChartDataRenderer.getTimeOfLatestRequestInMillis();
+    }
+
     private void clearCacheAndReload() {
-        timeOfEarliestRequestInMillis = null;
-        timeOfLatestRequestInMillis = null;
-        windSourceDirectionPoints.clear();
-        windSourceSpeedPoints.clear();
+        windChartDataRenderer.clearPointState();
         directionAccumulators.clear();
         speedAccumulators.clear();
-        firstPointOfFirstSeries = null;
         loadData(timeRangeWithZoomProvider.getFromTime(), timeRangeWithZoomProvider.getToTime(), /* append */false);
     }
 
@@ -576,7 +474,7 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
             } else if (from != null && to != null) {
                 setWidget(chart);
                 // if not playing or empty show loading message
-                if (shouldShowLoading(timeOfLatestRequestInMillis)) {
+                if (shouldShowLoading(getTimeOfLatestRequestInMillis())) {
                     showLoading(stringMessages.windChartLoading());
                 }
                 GetWindInfoAction getWindInfoAction = new GetWindInfoAction(sailingService, selectedRaceIdentifier,
@@ -873,25 +771,25 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
                 case Live:
                 {
                     // is date before first cache entry or is cache empty?
-                    if (timeOfEarliestRequestInMillis == null || newTime.getTime() < timeOfEarliestRequestInMillis) {
+                    if (getTimeOfEarliestRequestInMillis() == null || newTime.getTime() < getTimeOfEarliestRequestInMillis()) {
                         loadData(timeRangeWithZoomProvider.getFromTime(), newTime, /* append */ true);
-                    } else if (newTime.getTime() > timeOfLatestRequestInMillis) {
-                        loadData(new Date(timeOfLatestRequestInMillis), timeRangeWithZoomProvider.getToTime(), /* append */true);
+                    } else if (newTime.getTime() > getTimeOfLatestRequestInMillis()) {
+                        loadData(new Date(getTimeOfLatestRequestInMillis()), timeRangeWithZoomProvider.getToTime(), /* append */true);
                     }
                     // otherwise the cache spans across date and so we don't need to load anything
                     break;
                 }
                 case Replay:
                 {
-                    if (timeOfLatestRequestInMillis == null) {
+                    if (getTimeOfLatestRequestInMillis() == null) {
                         // pure replay mode
                         loadData(timeRangeWithZoomProvider.getFromTime(), timeRangeWithZoomProvider.getToTime(), /* append */false);
                     } else {
                         // replay mode during live play
-                        if (timeOfEarliestRequestInMillis == null || newTime.getTime() < timeOfEarliestRequestInMillis) {
+                        if (getTimeOfEarliestRequestInMillis() == null || newTime.getTime() < getTimeOfEarliestRequestInMillis()) {
                             loadData(timeRangeWithZoomProvider.getFromTime(), newTime, /* append */ true);
-                        } else if (newTime.getTime() > timeOfLatestRequestInMillis) {
-                            loadData(new Date(timeOfLatestRequestInMillis), newTime, /* append */true);
+                        } else if (newTime.getTime() > getTimeOfLatestRequestInMillis()) {
+                            loadData(new Date(getTimeOfLatestRequestInMillis()), newTime, /* append */true);
                         }                    
                     }
                     break;
@@ -965,8 +863,8 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
         buffer.append("\n");
         buffer.append("WindSource: " + windSource.name() + ": " + whatIsIt + "\n");
         buffer.append("Resolution in ms: " + settings.getResolutionInMilliseconds() + "\n");
-        buffer.append("timeOfEarliestRequest: " + (timeOfEarliestRequestInMillis != null ? timeFormatter.render(new Date(timeOfEarliestRequestInMillis)) : "") + "\n");
-        buffer.append("timeOfLatestRequest: " + (timeOfLatestRequestInMillis != null ? timeFormatter.render(new Date(timeOfLatestRequestInMillis)) : "") + "\n");
+        buffer.append("timeOfEarliestRequest: " + (getTimeOfEarliestRequestInMillis() != null ? timeFormatter.render(new Date(getTimeOfEarliestRequestInMillis())) : "") + "\n");
+        buffer.append("timeOfLatestRequest: " + (getTimeOfLatestRequestInMillis() != null ? timeFormatter.render(new Date(getTimeOfLatestRequestInMillis())) : "") + "\n");
         if (points == null) {
             buffer.append("Points is null" + "\n");
         } else {
@@ -1019,4 +917,5 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
         preselectFilter = windprovider;
         updateVisibleSeries();
     }
+    
 }

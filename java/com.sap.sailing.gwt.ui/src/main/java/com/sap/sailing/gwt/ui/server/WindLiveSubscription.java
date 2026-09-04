@@ -19,7 +19,7 @@ import com.sap.sse.common.TimePoint;
  * supplied by {@link WindLiveSubscriptionFeeder}s and is therefore kept separate from the subscription lifecycle and
  * buffered wind data.
  */
-public class WindLiveSubscription  {
+public class WindLiveSubscription {
     private static final Duration IDLE_TIMEOUT = Duration.ONE_MINUTE.times(2);
     private static final Duration CONNECTION_TIMEOUT = Duration.ONE_MINUTE.times(2);
 
@@ -42,7 +42,7 @@ public class WindLiveSubscription  {
     
     void addWind(WindSource windSource, Wind wind) {
         synchronized (windsByWindSource) {
-            final LinkedList<Wind> winds = windsByWindSource.computeIfAbsent(windSource, key->new LinkedList<>());
+            final LinkedList<Wind> winds = windsByWindSource.computeIfAbsent(windSource, key -> new LinkedList<>());
             if (winds.size() >= SailingServiceConstants.MAX_NUMBER_OF_WIND_FIXES_TO_DELIVER_IN_ONE_CALL) {
                 winds.removeFirst();
             }
@@ -58,7 +58,7 @@ public class WindLiveSubscription  {
         checkOwnerAndTouch(ownerName);
         final Map<WindSource, List<Wind>> result = new HashMap<>();
         synchronized (windsByWindSource) {
-            windsByWindSource.forEach((windSource, winds)->result.put(windSource, new ArrayList<>(winds)));
+            windsByWindSource.forEach((windSource, winds) -> result.put(windSource, new ArrayList<>(winds)));
             windsByWindSource.clear();
         }
         return result;
@@ -79,7 +79,7 @@ public class WindLiveSubscription  {
     
     /**
      * Returns whether the connection grace period (currently two minutes) has elapsed while at least one feeder has
-     * still never connected successfully. This is independent of {@link #isIdle(long)} because a client may keep
+     * still never connected successfully. This is independent of {@link #isIdle(TimePoint)} because a client may keep
      * polling an unusable subscription.
      */
     boolean hasFailedToConnect(TimePoint currentTime) {

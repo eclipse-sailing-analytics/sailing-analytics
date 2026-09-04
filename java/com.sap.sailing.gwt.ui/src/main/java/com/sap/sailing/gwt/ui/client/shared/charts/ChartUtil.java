@@ -18,7 +18,7 @@ public class ChartUtil {
      * added to the chart and hence visible. Otherwise, the checkbox won't initially be in sync with the series'
      * visibility state.
      */
-    static protected void useCheckboxesToShowAndHide(final Chart chart, final Runnable onVisibilityChanged) {
+    public static void useCheckboxesToShowAndHide(final Chart chart, final Runnable onVisibilityChanged) {
         chart.setLegend(new Legend().setEnabled(true).setBorderWidth(0).setSymbolPadding(25)); // make room for checkbox
         chart.setSeriesPlotOptions(new SeriesPlotOptions().setShowCheckbox(true)
                 .setSeriesCheckboxClickEventHandler(new SeriesCheckboxClickEventHandler() {

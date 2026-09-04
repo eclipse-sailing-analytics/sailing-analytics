@@ -27,7 +27,6 @@ import com.google.gwt.user.cellview.client.Column;
 import com.google.gwt.user.cellview.client.ColumnSortEvent.ListHandler;
 import com.google.gwt.user.cellview.client.Header;
 import com.google.gwt.user.cellview.client.TextColumn;
-import com.google.gwt.user.client.Timer;
 import com.google.gwt.user.client.Window;
 import com.google.gwt.user.client.rpc.AsyncCallback;
 import com.google.gwt.user.client.ui.Anchor;
@@ -54,7 +53,6 @@ import com.sap.sailing.gwt.ui.client.SailingServiceWriteAsync;
 import com.sap.sailing.gwt.ui.client.StringMessages;
 import com.sap.sailing.gwt.ui.shared.IgtimiDataAccessWindowWithSecurityDTO;
 import com.sap.sailing.gwt.ui.shared.IgtimiDeviceWithSecurityDTO;
-import com.sap.sailing.gwt.ui.shared.WindInfoForRaceDTO;
 import com.sap.sse.common.Util;
 import com.sap.sse.common.Util.Pair;
 import com.sap.sse.gwt.adminconsole.AdminConsoleTableResources;
@@ -93,29 +91,15 @@ import com.sap.sse.security.ui.client.component.editacl.EditACLDialog;
  * @author Axel Uhl (d043530)
  */
 public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProvider<IgtimiDeviceWithSecurityDTO> {
-    private static final long DEFAULT_IGTIMI_WIND_HISTORY_DURATION_IN_MILLISECONDS = 10 * 60 * 1000L;
-    private static final int DEFAULT_IGTIMI_WIND_UPDATE_INTERVAL_IN_MILLISECONDS = 3000;
     private final StringMessages stringMessages;
     private final SailingServiceWriteAsync sailingServiceWrite;
     private final ErrorReporter errorReporter;
-    private final IgtimiDeviceWindChart windChart;
+    private final WindLiveChartPanel windChartPanel;
     private final LabeledAbstractFilterablePanel<IgtimiDeviceWithSecurityDTO> filterDevicesPanel;
     private final RefreshableMultiSelectionModel<IgtimiDeviceWithSecurityDTO> refreshableDevicesSelectionModel;
     private final LabeledAbstractFilterablePanel<IgtimiDataAccessWindowWithSecurityDTO> filterDataAccessWindowPanel;
     private final RefreshableMultiSelectionModel<IgtimiDataAccessWindowWithSecurityDTO> refreshableDataAccessWindowsSelectionModel;
     private final BusyIndicator busyIndicator;
-    private final Set<String> shownDeviceSerialNumbers = new HashSet<>();
-    private String igtimiWindLiveSubscriptionId;
-    private int igtimiWindSelectionVersion;
-    private String igtimiWindLiveUpdateRequestPendingSubscriptionId;
-
-    private final Timer igtimiWindLiveUpdateTimer = new Timer() {
-        @Override
-        public void run() {
-            loadIgtimiWindLiveUpdates();
-        }
-    };
-
     public static class AccountImagesBarCell extends ImagesBarCell {
         public static final String ACTION_REMOVE = "ACTION_REMOVE";
         private final StringMessages stringMessages;
@@ -170,6 +154,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         final VerticalPanel devicesCaptionPanelContents = new VerticalPanel();
         devicesCaptionPanel.add(devicesCaptionPanelContents);
         final FlushableCellTable<IgtimiDeviceWithSecurityDTO> devicesTable = new FlushableCellTable<>(/* pageSize */ 50, tableRes);
+        devicesTable.ensureDebugId("IgtimiDevicesCellTable");
         final ListDataProvider<IgtimiDeviceWithSecurityDTO> filteredDevices = new ListDataProvider<>();
         filterDevicesPanel = new LabeledAbstractFilterablePanel<IgtimiDeviceWithSecurityDTO>(
                 new Label(stringMessages.filterBy()), Collections.emptyList(), filteredDevices, stringMessages) {
@@ -278,14 +263,24 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         addDataAccessWindoweButton.ensureDebugId("addIgtimiDataAccessWindow");
         dawTable.setVisible(false); // make visible if and only if a single device is selected in the devices table
         // wind chart
-        windChart = new IgtimiDeviceWindChart();
-        windChart.setWidth("350px");
-        windChart.setHeight("800px");
-        final CaptionPanel windChartCaptionPanel = new CaptionPanel(stringMessages.windChart());
-        windChartCaptionPanel.add(windChart);
-        windChartCaptionPanel.setVisible(false);
-        add(windChartCaptionPanel);
-        refreshableDevicesSelectionModel.addSelectionChangeHandler(e -> updateIgtimiWindChart(windChartCaptionPanel));
+        windChartPanel = new WindLiveChartPanel(
+                sailingServiceWrite,
+                (windSource, from, to, callback)->sailingServiceWrite.getWindInfoForIgtimiDevice(
+                        windSource.getId().toString(), from, to, callback),
+                stringMessages, errorReporter);
+        windChartPanel.ensureDebugId("WindLiveChartPanel");
+//        windChartPanel.setWidth("350px");
+//        windChartPanel.setHeight("800px");
+        windChartPanel.setWidth("1200px");
+        windChartPanel.setHeight("400px");
+        add(windChartPanel);
+        refreshableDevicesSelectionModel.addSelectionChangeHandler(e -> {
+            final Set<WindSource> selectedWindSources = new HashSet<>();
+            for (final IgtimiDeviceWithSecurityDTO device : refreshableDevicesSelectionModel.getSelectedSet()) {
+                selectedWindSources.add(new WindSourceWithAdditionalID(WindSourceType.EXPEDITION, device.getSerialNumber()));
+            }
+            windChartPanel.setSelectedWindSources(selectedWindSources);
+        });
     }
     
     private static class DevicesImagesBarCell extends DefaultActionsImagesBarCell {
@@ -527,148 +522,6 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         table.setSelectionModel(dawsSelectionCheckboxColumn.getSelectionModel(),
                 dawsSelectionCheckboxColumn.getSelectionManager());
         return table;
-    }
-
-    private void updateIgtimiWindChart(final CaptionPanel windChartCaptionPanel) {
-        final Set<String> selectedSerialNumbers = new HashSet<>();
-        final Set<WindSource> selectedWindSources = new HashSet<>();
-        for (final IgtimiDeviceWithSecurityDTO device : refreshableDevicesSelectionModel.getSelectedSet()) {
-            selectedSerialNumbers.add(device.getSerialNumber());
-            selectedWindSources.add(new WindSourceWithAdditionalID(WindSourceType.EXPEDITION, device.getSerialNumber()));
-        }
-        final int selectionVersion = ++igtimiWindSelectionVersion;
-        stopIgtimiWindLiveSubscription();
-        for (final String serialNumber : shownDeviceSerialNumbers) {
-            windChart.removeDevice(serialNumber);
-        }
-        shownDeviceSerialNumbers.clear();
-        windChartCaptionPanel.setVisible(!selectedSerialNumbers.isEmpty());
-        if (!selectedSerialNumbers.isEmpty()) {
-            sailingServiceWrite.startWindLiveSubscription(
-                    selectedWindSources,
-                    new AsyncCallback<String>() {
-                        @Override
-                        public void onSuccess(final String subscriptionId) {
-                            if (selectionVersion != igtimiWindSelectionVersion) {
-                                stopIgtimiWindLiveSubscription(subscriptionId);
-                            } else {
-                                igtimiWindLiveSubscriptionId = subscriptionId;
-                                loadIgtimiWindHistory(selectedSerialNumbers, new Date(), selectionVersion);
-                            }
-                        }
-                        @Override
-                        public void onFailure(final Throwable caught) {
-                            if (selectionVersion == igtimiWindSelectionVersion) {
-                                windChartCaptionPanel.setVisible(false);
-                                errorReporter.reportError(caught.getMessage());
-                            }
-                        }
-                    });
-        }
-    }
-
-    private void loadIgtimiWindHistory(
-            final Set<String> serialNumbers,
-            final Date to,
-            final int selectionVersion) {
-        final Date from = new Date(to.getTime() - DEFAULT_IGTIMI_WIND_HISTORY_DURATION_IN_MILLISECONDS);
-        final Set<String> serialNumbersPending = new HashSet<>(serialNumbers);
-        for (final String serialNumber : serialNumbers) {
-            sailingServiceWrite.getWindInfoForIgtimiDevice(
-                    serialNumber,
-                    from,
-                    to,
-                    new AsyncCallback<WindInfoForRaceDTO>() {
-                        @Override
-                        public void onSuccess(final WindInfoForRaceDTO result) {
-                            if (selectionVersion == igtimiWindSelectionVersion) {
-                                windChart.showData(result, serialNumber);
-                                shownDeviceSerialNumbers.add(serialNumber);
-                                onIgtimiWindHistoryRequestCompleted(serialNumber, serialNumbersPending, selectionVersion);
-                            }
-                        }
-                        @Override
-                        public void onFailure(final Throwable caught) {
-                            if (selectionVersion == igtimiWindSelectionVersion) {
-                                errorReporter.reportError(caught.getMessage());
-                                onIgtimiWindHistoryRequestCompleted(serialNumber, serialNumbersPending, selectionVersion);
-                            }
-                        }
-                    });
-        }
-    }
-
-    private void onIgtimiWindHistoryRequestCompleted(
-            final String serialNumber,
-            final Set<String> serialNumbersPending,
-            final int selectionVersion) {
-        serialNumbersPending.remove(serialNumber);
-        if (selectionVersion == igtimiWindSelectionVersion
-                && serialNumbersPending.isEmpty()
-                && igtimiWindLiveSubscriptionId != null) {
-            loadIgtimiWindLiveUpdates();
-            igtimiWindLiveUpdateTimer.scheduleRepeating(DEFAULT_IGTIMI_WIND_UPDATE_INTERVAL_IN_MILLISECONDS);
-        }
-    }
-
-    private void loadIgtimiWindLiveUpdates() {
-        final String subscriptionId = igtimiWindLiveSubscriptionId;
-        if (subscriptionId != null
-                && !subscriptionId.equals(igtimiWindLiveUpdateRequestPendingSubscriptionId)) {
-            igtimiWindLiveUpdateRequestPendingSubscriptionId = subscriptionId;
-            sailingServiceWrite.getWindLiveUpdates(
-                    subscriptionId,
-                    new AsyncCallback<WindInfoForRaceDTO>() {
-                        @Override
-                        public void onSuccess(final WindInfoForRaceDTO result) {
-                            if (subscriptionId.equals(igtimiWindLiveUpdateRequestPendingSubscriptionId)) {
-                                igtimiWindLiveUpdateRequestPendingSubscriptionId = null;
-                            }
-                            if (subscriptionId.equals(igtimiWindLiveSubscriptionId)) {
-                                windChart.appendData(result);
-                            }
-                        }
-                        @Override
-                        public void onFailure(final Throwable caught) {
-                            if (subscriptionId.equals(igtimiWindLiveUpdateRequestPendingSubscriptionId)) {
-                                igtimiWindLiveUpdateRequestPendingSubscriptionId = null;
-                            }
-                            if (subscriptionId.equals(igtimiWindLiveSubscriptionId)) {
-                                errorReporter.reportError(caught.getMessage());
-                            }
-                        }
-                    });
-        }
-    }
-
-    private void stopIgtimiWindLiveSubscription() {
-        igtimiWindLiveUpdateTimer.cancel();
-        igtimiWindLiveUpdateRequestPendingSubscriptionId = null;
-        final String subscriptionId = igtimiWindLiveSubscriptionId;
-        igtimiWindLiveSubscriptionId = null;
-        if (subscriptionId != null) {
-            stopIgtimiWindLiveSubscription(subscriptionId);
-        }
-    }
-
-    private void stopIgtimiWindLiveSubscription(final String subscriptionId) {
-        sailingServiceWrite.stopWindLiveSubscription(
-                subscriptionId,
-                new AsyncCallback<Void>() {
-                    @Override
-                    public void onSuccess(final Void result) {
-                    }
-                    @Override
-                    public void onFailure(final Throwable caught) {
-                    }
-                });
-    }
-    
-    @Override
-    protected void onUnload() {
-        super.onUnload();
-        ++igtimiWindSelectionVersion;
-        stopIgtimiWindLiveSubscription();
     }
 
     public void refreshDevices() {

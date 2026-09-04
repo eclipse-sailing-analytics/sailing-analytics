@@ -12,7 +12,7 @@ import com.sap.sailing.domain.igtimiadapter.shared.IgtimiWindReceiver;
  * Feeds wind received through an Igtimi live connection into a provider-neutral
  * {@link WindLiveSubscription}.
  */
-class IgtimiWindLiveSubscriptionFeeder implements WindLiveSubscriptionFeeder {
+public class IgtimiWindLiveSubscriptionFeeder implements WindLiveSubscriptionFeeder {
     private final LiveDataConnection liveDataConnection;
     private final IgtimiWindReceiver windReceiver;
     private volatile boolean connected;
