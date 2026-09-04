@@ -161,7 +161,7 @@ public class Activator implements BundleActivator {
 
     public MapProviderTypes getMapProviderType() {
         return Optional.ofNullable(context.getProperty(MAP_PROVIDER_TYPE_PROPERTY_NAME))
-                .map(mapTypeName -> MapProviderTypes.valueOf(mapTypeName)).orElse(MapProviderTypes.GOOGLE);
+                .map(mapTypeName -> MapProviderTypes.valueOf(mapTypeName)).orElse(MapProviderTypes.MAPLIBRE);
     }
 
     /**
