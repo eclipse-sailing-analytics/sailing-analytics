@@ -1,3 +1,5 @@
+[![REUSE status](https://api.reuse.software/badge/github.com/eclipse-sailing-analytics/sailing-analytics)](https://api.reuse.software/info/github.com/eclipse-sailing-analytics/sailing-analytics)
+
 <p align="center">
   <img src="azimuth_logo.png" alt="Sailing Analytics">
 </p>
@@ -63,7 +65,6 @@ To start contributing, read the onboarding document at the following URL: [https
 The project welcomes contributions in the form of pull requests, for example, enhancements of the Data Mining functionality, including any sailing-specific metric or dimension you may think of and that you find is still missing so far; or new connectors to exciting new tracking systems; or additional features for the race viewer; or a map visualization that does not require a Google Map but uses Open Street Map / Open Layers; landscape automation; improved start sequence analytics; major UI improvements for the administrative layer ("AdminConsole"), etc.
 
 The issue tracker at [https://bugzilla.sapsailing.com](https://bugzilla.sapsailing.com) is currently used for any sort of issue and enhancement request tracking. Help to migrate this smoothly to Github Issues would be much appreciated, ideally keeping issue numbers stable due to many references to those Bugzilla bug numbers, be it in the source code, the Wiki, or the build infrastructure.
-
 
 ## Code of Conduct
 

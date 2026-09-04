@@ -64,10 +64,17 @@ jobs:
     permissions: {}
     runs-on: ubuntu-latest
     outputs:
-      should_run: ${{ steps.filter.outputs.code }}
+      # On workflow_dispatch there is no 'before' field in the event payload, so
+      # paths-filter cannot compute a meaningful diff (it would warn and fall back
+      # to the last commit only). A manual dispatch is an explicit request to build,
+      # so we skip the filter step entirely and force should_run=true. On push/PR the
+      # filter runs and its 'code' output decides. (The build job also short-circuits
+      # its own if-condition on workflow_dispatch, so this keeps both in agreement.)
+      should_run: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.filter.outputs.code }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: filter
+        if: github.event_name != 'workflow_dispatch'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           # Under the default 'some' quantifier a negated rule still counts as a
@@ -146,12 +153,15 @@ jobs:
           sudo mkdir /mnt/tmp
           sudo chmod 777 /mnt/tmp
       - name: Collect Workflow Telemetry
-        uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
+        uses: ycfreeman/workflow-telemetry-action@72ec425db8a31670fdc4419966940a6d980a0b49 # v3.0.2
         with:
           comment_on_pr: false
+          proc_trace_min_duration: 5000        # only chart processes running >= 5s
+          proc_trace_chart_max_count: 40       # cap Gantt bars to keep mermaid source under 50k
+          metric_frequency: 30                 # ~3h+ builds: coarser sampling so the per-sample CPU/memory xychart source stays well under mermaid's 50k maxTextSize (~390 points/3h15m)
       - name: Setup firefox
         id: setup-firefox
-        uses: browser-actions/setup-firefox@5914774dda97099441f02628f8d46411fcfbd208 # v1.7.0
+        uses: browser-actions/setup-firefox@0bc507ddf224827e3b1af68e014d5e42ab93e795 # v1.7.2
         with:
           firefox-version: ${{  github.event.inputs.firefox_version == '' && '140.0' || github.event.inputs.firefox_version }}
       - run: |
@@ -180,7 +190,7 @@ jobs:
           java-version: '25'
           mvn-toolchain-id: 'JavaSE-25'
       - name: Setup Android SDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         with:
           log-accepted-android-sdk-licenses: 'false'
           cmdline-tools-version: 9123335  # This corresponds to human-friendly version number 8.0
@@ -260,7 +270,7 @@ jobs:
       - name: Create Release
         id: create_release
         if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/docker-24' || github.ref == 'refs/heads/docker-25' || startsWith(github.ref, 'refs/heads/releases/') }}
-        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ env.SIMPLE_VERSION_INFO }}
           target_commitish: ${{ github.ref_name }}
@@ -274,7 +284,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          # Do NOT fold this into action-gh-release's files: input: that action derives the
+          # content type via the mime-types library, which maps .tar.gz to application/gzip.
+          # Production installers (refreshInstance.sh, github-download-release-assets.sh) select
+          # the tarball with select(.content_type=="application/x-tar"), so the type must be set
+          # explicitly here.
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
           asset_path: ./dist/${{ env.SIMPLE_VERSION_INFO }}/${{ env.SIMPLE_VERSION_INFO }}.tar.gz
           asset_name: ${{ env.SIMPLE_VERSION_INFO }}.tar.gz
           asset_content_type: application/x-tar
@@ -285,7 +300,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps 
+          upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
           asset_path: ./dist/${{ env.SIMPLE_VERSION_INFO }}/release-notes.txt
           asset_name: release-notes.txt
           asset_content_type: text/plain
@@ -305,47 +320,85 @@ jobs:
           echo "Identified CI job: ${JOB}"
           curl -u "${{ vars.CI_JOB_USERNAME }}:${{ secrets.CI_JOB_PASSWORD}}" ${{ vars.CI_BASE_URL }}/job/${JOB}/build?token=${{ secrets.CI_JOB_TOKEN }}
 
-  # build-gate is the REQUIRED status check in branch protection. It must go
-  # green ONLY for a genuine full build (tests actually ran) or a legitimate
-  # trivial-change skip.
+  # build-gate is the REQUIRED status check in the branch ruleset (context
+  # "build-gate"). It must be SATISFIED only for a genuine full build (tests
+  # actually ran and passed) or a legitimate trivial-change skip; every other
+  # case — most importantly a compile-only fork PR — must leave the PR
+  # un-mergeable WITHOUT a red X.
   #
-  # A SUCCESSFUL compile-only run (build succeeded AND skip_tests true — e.g. a
-  # fork pull_request, a *-reviewed-for-compile tag, or a workflow_dispatch with
-  # skip_tests=true) must NOT qualify a PR for merge, but should also NOT show as
-  # a failed/red run. So for that one case this job is SKIPPED via its if:. A
-  # required check whose job never starts is left "Expected — waiting" (pending):
-  # the PR stays un-mergeable WITHOUT a red X, and the workflow run is not marked
-  # failed. Merge qualification for fork code then comes only from a maintainer
-  # pushing a *-reviewed-for-build tag (full trusted build with tests).
+  # WHY THIS IS A POSTED COMMIT STATUS, NOT A JOB NAMED build-gate:
+  # GitHub Actions auto-creates a check-run for every JOB, and fills its
+  # conclusion from the job's fate — including "skipped" when the job's if: is
+  # false. A rule set / branch protection treats a "skipped" required check as
+  # SATISFIED (mergeable). So a job named build-gate can NEVER represent "absent"
+  # — a skipped job still materializes a skipped=passed check-run. That is the
+  # exact bug that let compile-only fork PRs #53/#54 merge without tests.
   #
-  # IMPORTANT: this must be a job-level skip (job never starts), NOT run-then-
-  # report-skipped — a job that runs and reports conclusion "skipped" counts as
-  # PASSED for branch protection and would let the PR merge. Also note the guard
-  # is deliberately narrow: it fires ONLY for a *successful* compile-only build.
-  # A compile-only build that FAILED (build.result != success) still runs the
-  # gate below and goes red, and the trivial-change skip still runs and goes
-  # green — so docs-only PRs are not left pending forever.
+  # A COMMIT STATUS (legacy Statuses API) is different: it exists only if we
+  # explicitly POST it. A skipped STEP posts nothing (steps are not check-runs).
+  # The ruleset matches the required context "build-gate" by NAME across both
+  # APIs, so a posted commit status with context=build-gate satisfies it exactly
+  # as the old check-run did — no ruleset change needed.
   #
-  # The always() is REQUIRED: without it, a FAILED build (a job listed in needs:)
-  # would cascade-skip this gate by GitHub's default rule, leaving the required
-  # check quietly pending instead of red. always() forces the gate to run for
-  # every build outcome so the guard alone — not the needs: cascade — decides
-  # whether it runs; the sole non-run case is the narrow successful-compile-only
-  # one above. (A real build failure then runs the gate and it exits 1 → red.)
-  build-gate:
-    permissions: {}
+  # Hence: this job is named post-build-gate-status (NOT build-gate) so its own
+  # auto check-run carries a context the ruleset ignores. Its single step POSTs a
+  # commit status context=build-gate ONLY when: the change was trivial (build
+  # skipped, no relevant changes) OR a full build ran WITH tests and succeeded
+  # -> state=success; OR a full build ran WITH tests and FAILED
+  # (build.result==failure, skip_tests==false) -> state=failure (red X, so a
+  # committer's own broken build is loud). In every OTHER case it posts NOTHING,
+  # so no build-gate context exists for the head SHA and the PR stays blocked at
+  # "Expected" with no red X. That "nothing" covers: any compile-only run,
+  # succeeded OR failed (fork PR, *-reviewed-for-compile, workflow_dispatch
+  # skip_tests) — no tests ran, so there is nothing meaningful to fail on; AND a
+  # CANCELLED trusted build — cancellation is indeterminate (tests might have
+  # passed had it finished), so "failure" would be misleading; re-run to get a
+  # real verdict. Merge qualification for fork code comes only from a maintainer
+  # pushing a *-reviewed-for-build tag (full trusted build with tests), which
+  # posts success/failure. compile-gate (advisory) still shows compile pass/fail.
+  #
+  # The status is posted against the PR HEAD sha on pull_request events
+  # (github.sha there is the ephemeral refs/pull/N/merge commit, which the
+  # ruleset does not evaluate) and github.sha otherwise. needs:[changes, build]
+  # + if: always() so the trivial-change path (build skipped) is still evaluated.
+  post-build-gate-status:
+    permissions:
+      statuses: write
     needs: [changes, build]
-    if: ${{ always() && !(needs.build.result == 'success' && needs.build.outputs.skip_tests == 'true') }}
+    if: always()
     runs-on: ubuntu-latest
     steps:
-      - run: |
-          if [[ "${{ needs.build.result }}" == "success" && "${{ needs.build.outputs.skip_tests }}" != "true" ]]; then
-            echo "Full build with tests passed."
-          elif [[ "${{ needs.build.result }}" == "skipped" && "${{ needs.changes.outputs.should_run }}" == "false" ]]; then
-            echo "No relevant changes — skipping is OK."
+      - name: Post build-gate commit status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          SKIP_TESTS: ${{ needs.build.outputs.skip_tests }}
+          SHOULD_RUN: ${{ needs.changes.outputs.should_run }}
+          GATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          STATE=""
+          if [[ "$BUILD_RESULT" == "success" && "$SKIP_TESTS" != "true" ]]; then
+            STATE=success; REASON="Full build with tests passed."
+          elif [[ "$BUILD_RESULT" == "skipped" && "$SHOULD_RUN" == "false" ]]; then
+            STATE=success; REASON="No relevant changes — nothing to build."
+          elif [[ "$BUILD_RESULT" == "failure" && "$SKIP_TESTS" != "true" ]]; then
+            STATE=failure; REASON="Full build with tests failed."
+          fi
+          if [[ -n "$STATE" ]]; then
+            echo "Posting build-gate=$STATE on $GATE_SHA: $REASON"
+            gh api "repos/${GITHUB_REPOSITORY}/statuses/${GATE_SHA}" \
+              -f state="$STATE" \
+              -f context=build-gate \
+              -f description="$REASON" \
+              -f target_url="$RUN_URL"
           else
-            echo "Build failed or was cancelled."
-            exit 1
+            echo "Not posting build-gate: build.result=$BUILD_RESULT skip_tests=$SKIP_TESTS should_run=$SHOULD_RUN"
+            echo "The build-gate context stays absent, so the PR remains un-mergeable"
+            echo "at 'Expected' without a red X — this covers a successful OR failed"
+            echo "compile-only run (e.g. a fork PR, where no tests ran so there is"
+            echo "nothing to fail on). A *-reviewed-for-build tag runs the full build"
+            echo "with tests and posts success (or failure) to the build-gate context."
           fi
 
   # compile-gate is an ADVISORY (non-required) check. It reflects only whether
