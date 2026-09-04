@@ -4,6 +4,10 @@ Your WebSearch tool is broken, don't use it. Instead fetch https://duckduckgo.co
 
 # Claude Code Instructions for sailing-analytics
 
+## Research before Answering
+
+Make sure to research the topic/question well and thoroughly instead of just answering quickly and superficially.
+
 ## Java Coding Style Preferences
 
 ### Variable Declarations
@@ -42,3 +46,4 @@ public void processItem(Item item) {  // Missing final
 ## Git Commit Messages
 - Follow existing repository convention: start with bug/issue number (e.g., "bug6214: description")
 - Use descriptive commit messages explaining what changed and why
+- add an "Assisted-By: " line at the end of the commit when you were involved, citing the name of the LLM currently used
