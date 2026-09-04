@@ -1,4 +1,4 @@
-﻿# Welcome to the SAP Sailing Wiki
+# Welcome to the SAP Sailing Wiki
 
 This is the <img src="https://www.sapsailing.com/images/sap-logo_grey.png"/> Wiki where useful information regarding this project can be found.
 
@@ -68,6 +68,7 @@ SAP is at the center of today’s technology revolution, developing innovations 
   * [[Upgrading Operating System Across Landscape|wiki/info/landscape/operating-system-upgrade]]
   * [[EC2 mail relaying vs. Amazon Simple E-Mail Service (SES)|wiki/info/landscape/mail-relaying]]
   * [[Establishing support@sapsailing.com with AWS SES, SNS, and Lambda|wiki/info/landscape/support-email]]
+  * [[Creating an EC2 image for a MongoDB Replica Set from scratch|wiki/info/landscape/creating-ec2-mongodb-image-from-scratch]]
   * [[Creating an EC2 image for a MongoDB Replica Set from scratch|wiki/info/landscape/creating-ec2-mongodb-image-from-scratch]]
   * [[Setting up dedicated S3 buckets|wiki/info/landscape/s3-bucket-setup]]
   * [[Large-Scale Set-Ups, e.g., Olympic Games|wiki/info/landscape/tokyo2020/olympic-setup]]
