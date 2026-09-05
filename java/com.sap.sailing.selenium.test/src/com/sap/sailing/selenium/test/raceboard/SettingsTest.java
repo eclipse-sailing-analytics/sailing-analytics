@@ -111,7 +111,7 @@ public class SettingsTest extends AbstractSeleniumTest {
         leaderboardSettingsDialog.pressCancel();
         MapSettingsPO mapSettings = raceboard.openMapSettings();
         // Verify initial mode settings
-        mapSettings.waitForWindUpUntil(false);
+        mapSettings.waitForWindUpUntil(raceboard, false, 3);
         Assertions.assertFalse(mapSettings.isShowOnlySelectedCompetitors());
         mapSettings.setTransparentHoverlines(true);
         mapSettings.setWindUp(false);
@@ -148,7 +148,7 @@ public class SettingsTest extends AbstractSeleniumTest {
         leaderboardSettingsDialog.pressOk(false, false);
         mapSettings = raceboard.openMapSettings();
         // verify default mode settings override custom user settings
-        mapSettings.waitForWindUpUntil(true);
+        mapSettings.waitForWindUpUntil(raceboard, true, 3);
         // verify default mode settings override system defaults
         Assertions.assertTrue(mapSettings.isShowOnlySelectedCompetitors());
         // Verify custom user settings are independent for modes
@@ -168,7 +168,7 @@ public class SettingsTest extends AbstractSeleniumTest {
         leaderboardSettingsDialog.pressCancel();
         mapSettings = raceboard.openMapSettings();
         // Verify that mode settings are overridden by document settings
-        mapSettings.waitForWindUpUntil(false);
+        mapSettings.waitForWindUpUntil(raceboard, false, 3);
         // Verify custom user settings are independent for modes
         Assertions.assertFalse(mapSettings.isTransparentHoverlines());
         // verify that custom document settings override mode settings of other modes
@@ -191,7 +191,7 @@ public class SettingsTest extends AbstractSeleniumTest {
         Assertions.assertArrayEquals(detailsToSelect, selectedDetails);
         leaderboardSettingsDialog.pressCancel();
         mapSettings = raceboard.openMapSettings();
-        mapSettings.waitForWindUpUntil(true);
+        mapSettings.waitForWindUpUntil(raceboard, true, 3);
     }
 
     /**
@@ -247,7 +247,7 @@ public class SettingsTest extends AbstractSeleniumTest {
         
         MapSettingsPO mapSettings = raceboard.openMapSettings();
         // Verify initial mode settings
-        mapSettings.waitForWindUpUntil(false);
+        mapSettings.waitForWindUpUntil(raceboard, false, 3);
         Assertions.assertFalse(mapSettings.isShowOnlySelectedCompetitors());
         mapSettings.setWindUp(true);
         mapSettings.setShowOnlySelectedCompetitors(true);
@@ -258,7 +258,7 @@ public class SettingsTest extends AbstractSeleniumTest {
         
         mapSettings = raceboard.openMapSettings();
         // verify default settings work
-        mapSettings.waitForWindUpUntil(true);
+        mapSettings.waitForWindUpUntil(raceboard, true, 3);
         Assertions.assertTrue(mapSettings.isShowOnlySelectedCompetitors());
     }
     
@@ -285,8 +285,8 @@ public class SettingsTest extends AbstractSeleniumTest {
         final RaceBoardPage raceboard = RaceBoardPage.goToRaceboardUrl(getWebDriver(), getContextRoot(), BMW_CUP_REGATTA,
                 BMW_CUP_REGATTA, String.format(BMW_RACE, 1), "WINNING_LANES", false);
         final MapSettingsPO mapSettings = raceboard.openMapSettings();
-        // Verify initial mode settings
-        mapSettings.waitForWindUpUntil(true);
+        // Verify initial mode settings; FIXME maplibre-secure-map-tiles: timing may be different, and the settings may pop up with the checkbox de-selected before the map has turned; we would have to close/cancel and re-open the settings in an loop...
+        mapSettings.waitForWindUpUntil(raceboard, true, 3);
         final TimeSliderPO timeSlider = raceboard.getTimeSlider();
         final String sliderKnobTime = timeSlider.getSliderKnobTime();
         final String finishMarkerTime = timeSlider.getFinishMarkerTime();
@@ -301,7 +301,7 @@ public class SettingsTest extends AbstractSeleniumTest {
                 BMW_CUP_REGATTA, String.format(BMW_RACE, 1), "PLAYER", false);
         final MapSettingsPO mapSettings = raceboard.openMapSettings();
         // Verify initial mode settings
-        mapSettings.waitForWindUpUntil(false);
+        mapSettings.waitForWindUpUntil(raceboard, false, 3);
         final TimeSliderPO timeSlider = raceboard.getTimeSlider();
         final LocalTime playerStartTime = LocalTime.parse(timeSlider.getStartMarkerTime())
                 .minusSeconds(DURATION_BEFORE_START_TO_SET_TIMER_TO_FOR_REPLAY_RACES_IN_SECONDS);
@@ -319,7 +319,7 @@ public class SettingsTest extends AbstractSeleniumTest {
                 BMW_CUP_REGATTA, String.format(BMW_RACE, 1), "START_ANALYSIS", false);
         final MapSettingsPO mapSettings = raceboard.openMapSettings();
         // Verify initial mode settings
-        mapSettings.waitForWindUpUntil(true);
+        mapSettings.waitForWindUpUntil(raceboard, true, 3);
         final TimeSliderPO timeSlider = raceboard.getTimeSlider();
         final LocalTime playerStartTime = LocalTime.parse(timeSlider.getStartMarkerTime())
                 .plusSeconds(DURATION_AFTER_START_TO_SET_TIMER_TO_FOR_START_ANALYSIS);
@@ -340,7 +340,7 @@ public class SettingsTest extends AbstractSeleniumTest {
                 BMW_CUP_REGATTA, String.format(BMW_RACE, 1), "WINNING_LANES", false);
         MapSettingsPO mapSettings = raceboard.openMapSettings();
         // The following options are false in the system default but activated by the WINNING_LANES mode
-        mapSettings.waitForWindUpUntil(true);
+        mapSettings.waitForWindUpUntil(raceboard, true, 3);
         Assertions.assertTrue(mapSettings.isShowOnlySelectedCompetitors());
         mapSettings.setWindUp(false);
         mapSettings.setShowOnlySelectedCompetitors(false);
@@ -349,7 +349,7 @@ public class SettingsTest extends AbstractSeleniumTest {
                 String.format(BMW_RACE, 1), "WINNING_LANES", false);
         mapSettings = raceboard.openMapSettings();
         // verify mode settings have been overwritten
-        mapSettings.waitForWindUpUntil(false);
+        mapSettings.waitForWindUpUntil(raceboard, false, 3);
         Assertions.assertFalse(mapSettings.isShowOnlySelectedCompetitors());
     }
 
