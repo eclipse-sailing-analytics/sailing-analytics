@@ -18,12 +18,17 @@ public class DockerChromeDriver extends ChromeDriver {
     private static ChromeOptions constructChromeOptions(Capabilities capabilities) {
         final ChromeOptions chromeOptions = new ChromeOptions();
         chromeOptions.merge(capabilities);
-        chromeOptions.addArguments("--disable-gpu", "--disable-extensions", "--window-size=1440,900");
+        chromeOptions.addArguments("--disable-extensions", "--window-size=1440,900");
+        // Recent Chromium (>=139) no longer auto-falls back to SwiftShader software rendering when the GPU is
+        // unavailable, so MapLibre GL cannot obtain a WebGL context. Do not pass --disable-gpu and explicitly opt into
+        // the (deprecated but still supported) software WebGL backend so the race map renders in this Docker setup.
+        chromeOptions.addArguments("--enable-unsafe-swiftshader", "--use-gl=angle", "--use-angle=swiftshader");
         chromeOptions.addArguments("--no-sandbox");
         chromeOptions.addArguments("--disable-dev-shm-usage");
         chromeOptions.addArguments("--remote-debugging-address=0.0.0.0");
         chromeOptions.addArguments("--remote-debugging-port=9222");
-        chromeOptions.setExperimentalOption("useAutomationExtension", false);
+        chromeOptions.setExperimentalOption("useAutomationExtension", /* value */ false);
+        ChromeBinary.configureBinary(chromeOptions);
         return chromeOptions;
     }
 }

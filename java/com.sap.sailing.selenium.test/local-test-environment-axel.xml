@@ -43,6 +43,16 @@
         <value>/usr/bin/chromedriver</value>
      </system-property>
      <!--
+        On Ubuntu 24.04 the distribution "chromium" is a confined snap whose sandbox stops Chromium's GPU/SwiftShader
+        sub-process from starting ("BindToCurrentSequence failed", GL_VENDOR = Disabled), so MapLibre GL gets no WebGL
+        context and the race map tests fail. Point the tests at a non-snap Chrome/Chromium binary instead. Installed
+        here via: sudo apt-get install google-chrome-stable
+     -->
+     <system-property>
+        <name>selenium.chrome.binary</name>
+        <value>/opt/google/chrome/google-chrome</value>
+     </system-property>
+     <!--
         You need geckodriver to be able to run Selenium tests on Firefox.
         This is the path to geckodriver, not Firefox.
         The geckodriver download is linked on the official selenium download page:
