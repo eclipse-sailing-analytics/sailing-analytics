@@ -170,9 +170,12 @@ jobs:
       - name: Install Mesa software GL for headless WebGL
         # The GPU-less runner has no hardware OpenGL, so headless Firefox cannot obtain a WebGL
         # context and MapLibre GL renders a blank map, failing every map-based Selenium test. The
-        # HeadlessFirefoxDriver prefs only un-blocklist WebGL; they still need a real GL backend.
-        # Install Mesa's software rasterizer (llvmpipe) so LIBGL_ALWAYS_SOFTWARE/GALLIUM_DRIVER
-        # (set in the test-run step's env) have something to bind to.
+        # HeadlessFirefoxDriver prefs only un-blocklist WebGL; they still need a real GL backend AND
+        # a display to bind it to. Firefox on Linux (unlike Chrome/ANGLE, which bundles SwiftShader)
+        # obtains its GL context through a display server, so we install Mesa's software rasterizer
+        # (llvmpipe) AND xvfb: the tests run under a virtual X display (see the xvfb-run wrapper on
+        # the build step) and Firefox is forced onto the EGL-over-X11 backend (MOZ_X11_EGL /
+        # gfx.x11-egl.force-enabled) so it binds llvmpipe via EGL rather than legacy GLX.
         #
         # WHY FIREFOX (and not a simpler Chrome swap): the browser is pinned to Firefox 140 because
         # Selenium is frozen at 3.141.59 (hand-vendored in the org.openqa.selenium.osgi bundle,
@@ -185,7 +188,7 @@ jobs:
         # already use) can replace this Mesa install. At that point drop this step, the "Verify
         # software WebGL" step, and the LIBGL_ALWAYS_SOFTWARE/GALLIUM_DRIVER env vars below.
         shell: bash
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri libglx-mesa0 libegl-mesa0 mesa-utils mesa-utils-bin
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri libglx-mesa0 libegl-mesa0 mesa-utils mesa-utils-bin xvfb
       - name: Verify software WebGL is available
         # Diagnostic only: make the GL state obvious in the log so a still-blank map is easy to
         # diagnose. Expect a "llvmpipe" renderer. Remove together with the Mesa install step when the
@@ -257,14 +260,22 @@ jobs:
           # Force headless Firefox onto Mesa's software rasterizer (llvmpipe) so MapLibre GL gets a
           # WebGL context on this GPU-less runner. Inherited by the Firefox child processes launched
           # by the Selenium product build below. Paired with the "Install Mesa software GL" step.
-          # Remove when the Selenium 3.141.59 / Java 8 pin is retired and a browser with bundled
-          # software GL replaces headless Firefox (see the "Install Mesa software GL" step comment).
+          # MOZ_X11_EGL makes Firefox use the EGL-over-X11 backend (binding llvmpipe via EGL rather
+          # than legacy GLX) against the virtual display provided by the xvfb-run wrapper on the
+          # build step. Remove when the Selenium 3.141.59 / Java 8 pin is retired and a browser with
+          # bundled software GL replaces headless Firefox (see the "Install Mesa software GL" step).
           LIBGL_ALWAYS_SOFTWARE: "true"
           GALLIUM_DRIVER: llvmpipe
+          MOZ_X11_EGL: "1"
           JAVA8_HOME: ${{env.JAVA_HOME_8_X64}}
           JAVA17_HOME: ${{env.JAVA_HOME_17_X64}}
         run: |
-            ./configuration/buildAndUpdateProduct.sh -x ${{ github.event.inputs.runner_cpus == '' && '4' || github.event.inputs.runner_cpus }} ${{ steps.mode.outputs.skip_tests == 'true' && '-t' || '' }} ${{ github.event.inputs.local_target_platform == 'true' && '-v' || '' }} build 2>&1
+            # Run under a virtual X display: headless Firefox on Linux still needs a display server
+            # to obtain its (software, llvmpipe) GL context for MapLibre's WebGL. xvfb-run -a picks a
+            # free display number; the screen geometry matches MOZ_HEADLESS_WIDTH/HEIGHT in
+            # buildAndUpdateProduct.sh. Drop the xvfb-run wrapper when the Selenium/Java pin is
+            # retired and a browser with its own offscreen software GL replaces headless Firefox.
+            xvfb-run -a --server-args="-screen 0 1600x900x24" ./configuration/buildAndUpdateProduct.sh -x ${{ github.event.inputs.runner_cpus == '' && '4' || github.event.inputs.runner_cpus }} ${{ steps.mode.outputs.skip_tests == 'true' && '-t' || '' }} ${{ github.event.inputs.local_target_platform == 'true' && '-v' || '' }} build 2>&1
       - name: show disk stats
         if: always()
         run: df -h

@@ -33,6 +33,11 @@ public class HeadlessFirefoxDriver extends FirefoxDriver {
         firefoxOptions.addPreference("webgl.disabled", /* value */ false);
         firefoxOptions.addPreference("webgl.disable-fail-if-major-performance-caveat", /* value */ true);
         firefoxOptions.addPreference("gfx.webrender.software", /* value */ true);
+        // Firefox on Linux obtains its GL context through a display server; on the CI runner the tests run under a
+        // virtual X display (xvfb) with the MOZ_X11_EGL environment variable set. Force the EGL-over-X11 backend so
+        // Firefox binds the Mesa llvmpipe software renderer via EGL rather than legacy GLX, which is what gives
+        // MapLibre a working WebGL context there.
+        firefoxOptions.addPreference("gfx.x11-egl.force-enabled", /* value */ true);
         return firefoxOptions;
     }
 }
