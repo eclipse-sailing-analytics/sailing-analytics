@@ -185,19 +185,25 @@ jobs:
         # already use) can replace this Mesa install. At that point drop this step, the "Verify
         # software WebGL" step, and the LIBGL_ALWAYS_SOFTWARE/GALLIUM_DRIVER env vars below.
         shell: bash
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri libglx-mesa0 libegl-mesa0 mesa-utils
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri libglx-mesa0 libegl-mesa0 mesa-utils mesa-utils-bin
       - name: Verify software WebGL is available
         # Diagnostic only: make the GL state obvious in the log so a still-blank map is easy to
-        # diagnose. Expect GL_RENDERER to mention "llvmpipe". Non-fatal (|| true) so a probe quirk
-        # never blocks the build; the map tests remain the real gate. Remove together with the Mesa
-        # install step when the Selenium/Java pin is retired (see the step above).
+        # diagnose. Expect a "llvmpipe" renderer. Remove together with the Mesa install step when the
+        # Selenium/Java pin is retired (see the step above).
+        #
+        # NOTE: headless Firefox on a runner has no X display, so it uses EGL (surfaceless), NOT GLX.
+        # glxinfo therefore prints nothing here ("unable to open display") and is only kept as a
+        # secondary probe; eglinfo is the meaningful one. We do NOT swallow stderr or force success:
+        # if EGL software rendering is genuinely unavailable we want the step (and log) to show it.
         shell: bash
         env:
           LIBGL_ALWAYS_SOFTWARE: "true"
           GALLIUM_DRIVER: llvmpipe
         run: |
-          echo "== glxinfo (software GL renderer) =="
-          glxinfo -B 2>&1 | grep -Ei 'renderer|opengl|vendor' || true
+          echo "== eglinfo (EGL surfaceless software renderer — the one Firefox uses) =="
+          eglinfo 2>&1 | grep -Ei 'renderer|opengl|vendor|device|EGL_MESA' || echo "(no EGL renderer info)"
+          echo "== glxinfo (GLX; expected empty without an X display) =="
+          glxinfo -B 2>&1 | grep -Ei 'renderer|opengl|vendor' || echo "(no GLX display — expected on headless runner)"
       - name: Check out the repository to the runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
