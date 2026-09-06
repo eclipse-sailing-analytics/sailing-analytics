@@ -167,6 +167,37 @@ jobs:
       - run: |
           echo Installed firefox versions: ${{ steps.setup-firefox.outputs.firefox-version }}
           ${{ steps.setup-firefox.outputs.firefox-path }} --version
+      - name: Install Mesa software GL for headless WebGL
+        # The GPU-less runner has no hardware OpenGL, so headless Firefox cannot obtain a WebGL
+        # context and MapLibre GL renders a blank map, failing every map-based Selenium test. The
+        # HeadlessFirefoxDriver prefs only un-blocklist WebGL; they still need a real GL backend.
+        # Install Mesa's software rasterizer (llvmpipe) so LIBGL_ALWAYS_SOFTWARE/GALLIUM_DRIVER
+        # (set in the test-run step's env) have something to bind to.
+        #
+        # WHY FIREFOX (and not a simpler Chrome swap): the browser is pinned to Firefox 140 because
+        # Selenium is frozen at 3.141.59 (hand-vendored in the org.openqa.selenium.osgi bundle,
+        # RequiredExecutionEnvironment JavaSE-1.8), which speaks the legacy WebDriver protocol that
+        # only older geckodriver/Firefox honor. See java/org.openqa.selenium.osgi/.
+        #
+        # WHEN THIS CAN BE REMOVED: once the Selenium 3.141.59 / Java 8 pin is retired (Selenium 4+
+        # upgrade, Java 8 -> Java 17/25 for the test bundle) the driver setup changes and a modern
+        # browser with its own bundled software GL (e.g. Chrome + SwiftShader, as the Chrome drivers
+        # already use) can replace this Mesa install. At that point drop this step, the "Verify
+        # software WebGL" step, and the LIBGL_ALWAYS_SOFTWARE/GALLIUM_DRIVER env vars below.
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri libglx-mesa0 libegl-mesa0 mesa-utils
+      - name: Verify software WebGL is available
+        # Diagnostic only: make the GL state obvious in the log so a still-blank map is easy to
+        # diagnose. Expect GL_RENDERER to mention "llvmpipe". Non-fatal (|| true) so a probe quirk
+        # never blocks the build; the map tests remain the real gate. Remove together with the Mesa
+        # install step when the Selenium/Java pin is retired (see the step above).
+        shell: bash
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "true"
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          echo "== glxinfo (software GL renderer) =="
+          glxinfo -B 2>&1 | grep -Ei 'renderer|opengl|vendor' || true
       - name: Check out the repository to the runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -217,6 +248,13 @@ jobs:
           POLAR_DATA_BASE_URL: ${{ vars.POLAR_DATA_BASE_URL }}
           POLAR_DATA_BEARER_TOKEN: ${{ steps.mode.outputs.skip_tests == 'true' && '' || secrets.POLAR_DATA_BEARER_TOKEN }}
           APP_PARAMETERS: "-Daws.region=eu-west-1"
+          # Force headless Firefox onto Mesa's software rasterizer (llvmpipe) so MapLibre GL gets a
+          # WebGL context on this GPU-less runner. Inherited by the Firefox child processes launched
+          # by the Selenium product build below. Paired with the "Install Mesa software GL" step.
+          # Remove when the Selenium 3.141.59 / Java 8 pin is retired and a browser with bundled
+          # software GL replaces headless Firefox (see the "Install Mesa software GL" step comment).
+          LIBGL_ALWAYS_SOFTWARE: "true"
+          GALLIUM_DRIVER: llvmpipe
           JAVA8_HOME: ${{env.JAVA_HOME_8_X64}}
           JAVA17_HOME: ${{env.JAVA_HOME_17_X64}}
         run: |
