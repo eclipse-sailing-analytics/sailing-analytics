@@ -504,12 +504,12 @@ public class PageObject {
     }
     
     protected void waitForElement(String seleniumId) {
-        WebDriverWait webDriverWait = new WebDriverWait(driver, DEFAULT_LOOKUP_TIMEOUT);
+        WebDriverWait webDriverWait = new WebDriverWait(driver, Duration.ofSeconds(DEFAULT_LOOKUP_TIMEOUT));
         webDriverWait.until(ExpectedConditions.presenceOfElementLocated(new BySeleniumId(seleniumId)));
     }
     
     protected void waitUntil(Function<WebDriver, Boolean> predicate) {
-        WebDriverWait webDriverWait = new WebDriverWait(driver, DEFAULT_LOOKUP_TIMEOUT);
+        WebDriverWait webDriverWait = new WebDriverWait(driver, Duration.ofSeconds(DEFAULT_LOOKUP_TIMEOUT));
         webDriverWait.until(predicate);
     }
     
@@ -518,7 +518,7 @@ public class PageObject {
     }
     
     protected void waitUntilAlertIsPresent() {
-        WebDriverWait webDriverWait = new WebDriverWait(driver, DEFAULT_LOOKUP_TIMEOUT);
+        WebDriverWait webDriverWait = new WebDriverWait(driver, Duration.ofSeconds(DEFAULT_LOOKUP_TIMEOUT));
         webDriverWait.until(ExpectedConditions.alertIsPresent());
     }
     
@@ -614,7 +614,7 @@ public class PageObject {
         }
         final String expression = expressionFormat.format(new Object[] {tabName});
         WebElement tab = tabPanel.findElement(By.xpath(expression));
-        WebDriverWait waitForTab = new WebDriverWait(driver, 20); // here, wait time is 20 seconds
+        WebDriverWait waitForTab = new WebDriverWait(driver, Duration.ofSeconds(20)); // here, wait time is 20 seconds
         waitForTab.until(ExpectedConditions.visibilityOf(tab)); // this will wait for tab to be visible for 20 seconds
         tab.click();
         return waitForWebElement(tabPanel, id);      
@@ -676,7 +676,7 @@ public class PageObject {
      * Waits for an alert box to appear. If no alert shows up, an Exception is thrown.
      */
     protected Alert waitForAlert(int timeoutInSeconds) {
-        return new WebDriverWait(driver, timeoutInSeconds).until(ExpectedConditions.alertIsPresent());
+        return new WebDriverWait(driver, Duration.ofSeconds(timeoutInSeconds)).until(ExpectedConditions.alertIsPresent());
     }
     
     protected void waitForAlertAndAccept(String expectedMessage) {
@@ -688,7 +688,7 @@ public class PageObject {
      * Exception is thrown.
      */
     protected void waitForAlertAndAccept(int timeoutInSeconds, String expectedMessageRegexp) {
-        final Alert expectedAlert = new WebDriverWait(driver, timeoutInSeconds).until(ExpectedConditions.alertIsPresent());
+        final Alert expectedAlert = new WebDriverWait(driver, Duration.ofSeconds(timeoutInSeconds)).until(ExpectedConditions.alertIsPresent());
         assertTrue(expectedAlert.getText().matches(expectedMessageRegexp));
         expectedAlert.accept();
     }
@@ -711,7 +711,7 @@ public class PageObject {
      * Waits for an notification to appear and dismisses the notification by clicking on it. If no notification shows up, an Exception is thrown.
      */
     protected void waitForNotificationAndDismiss(int timeoutInSeconds, String expectedNotificationMessage) {
-        WebDriverWait wait = new WebDriverWait(driver, timeoutInSeconds);
+        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(timeoutInSeconds));
         wait.until(new Function<WebDriver, Boolean>() {
             @Override
             public Boolean apply(WebDriver t) {
