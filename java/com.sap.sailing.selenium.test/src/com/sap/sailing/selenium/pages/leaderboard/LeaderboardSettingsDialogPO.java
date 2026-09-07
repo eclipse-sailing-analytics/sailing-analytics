@@ -1,5 +1,6 @@
 package com.sap.sailing.selenium.pages.leaderboard;
 
+import java.util.Arrays;
 import java.util.logging.Logger;
 
 import org.openqa.selenium.TimeoutException;
@@ -42,5 +43,27 @@ public class LeaderboardSettingsDialogPO extends DataEntryDialogPO {
             }
         }
         return leaderboardSettings;
+    }
+    
+    public LeaderboardSettingsDialogPO waitForExpectedSettings(RaceBoardPage raceboard, DetailCheckboxInfo[] expected, int attempts) throws InterruptedException {
+        DetailCheckboxInfo[] selectedDetails;
+        LeaderboardSettingsDialogPO leaderboardSettingsDialog = this;
+        LeaderboardSettingsPanelPO leaderboardSettingsPanelPO;
+        boolean foundExpectedSettings;
+        do {
+            leaderboardSettingsPanelPO = leaderboardSettingsDialog.getLeaderboardSettingsPanelPO();
+            selectedDetails = leaderboardSettingsPanelPO.getSelectedDetails();
+            foundExpectedSettings = Arrays.equals(expected, selectedDetails);
+            if (!foundExpectedSettings) {
+                logger.warning(
+                        "didn't find settings "+Arrays.toString(expected)+
+                        " but "+Arrays.toString(selectedDetails)+
+                        " trying " + (attempts-1) + " more times...");
+                leaderboardSettingsDialog.pressCancel();
+                Thread.sleep(1000);
+                leaderboardSettingsDialog = raceboard.openLeaderboardSettingsDialog();
+            }
+        } while (!foundExpectedSettings && --attempts > 0);
+        return leaderboardSettingsDialog;
     }
 }
