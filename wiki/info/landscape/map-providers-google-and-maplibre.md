@@ -183,7 +183,7 @@ The end-to-end procedure is a **two-phase** roll:
      group, **dismiss the two old instances** (scale desired back down to 2, or
      let the ASG replace them).
    * **Option B — live in-place update (no replacement).** Run OpenFreeMap's
-     [`rotate-tile-auth-secrets.sh`](https://github.com/axeluhl/openfreemap/blob/AL2023/docs/self_hosting.md#baking-a-golden-ami-for-an-auto-scaling-group-behind-an-alb)
+     [`rotate-tile-auth-secrets.sh`](https://github.com/axeluhl/openfreemap/blob/AL2023/rotate-tile-auth-secrets.sh)
      helper, pointing it at our target group (with an **authenticated `aws` CLI**
      and SSH access to the fleet), e.g.
      `TILE_AUTH_SECRETS='k1:old-secret,k2:new-secret' ./rotate-tile-auth-secrets.sh --target-group maptiles --region eu-west-1`.
