@@ -917,5 +917,4 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
         preselectFilter = windprovider;
         updateVisibleSeries();
     }
-    
 }
