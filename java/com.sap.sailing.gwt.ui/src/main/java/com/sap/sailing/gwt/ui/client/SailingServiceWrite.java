@@ -272,8 +272,11 @@ public interface SailingServiceWrite extends FileStorageManagementGwtService, Sa
     ArrayList<Pair<TimePoint, String>> getIgtimiDeviceLogs(String serialNumber, Duration duration) throws Exception;
     
     /**
-     * Starts a live subscription for the requested wind sources. The subscription is maintained by the write service
-     * so its state remains on the primary server.
+     * Starts a live subscription for the requested wind sources. The subscription is maintained by the write service so
+     * its state remains on the primary server and is not replicated. That's why {@link #getWindLiveUpdates(String)} is
+     * also found on this "write" interface despite its "reading" characteristics; it simply wouldn't find the
+     * subscription on a replica, to which the call may get routed if the method were provided on
+     * {@link SailingService}.
      *
      * @return an opaque subscription ID used to obtain updates and stop the subscription
      */
@@ -281,7 +284,8 @@ public interface SailingServiceWrite extends FileStorageManagementGwtService, Sa
 
     /**
      * Returns and removes the wind fixes currently buffered for the subscription identified by
-     * {@code subscriptionId}.
+     * {@code subscriptionId}. Note how this "reading" method is offered only on {@link SailingServiceWrite}:
+     * these subscriptions are not replicated and exist only on the primary instance of a replica set.
      */
     WindInfoForRaceDTO getWindLiveUpdates(String subscriptionId);
 

@@ -10,14 +10,35 @@ import java.util.UUID;
 
 import com.sap.sailing.domain.common.Wind;
 import com.sap.sailing.domain.common.WindSource;
+import com.sap.sailing.gwt.ui.client.SailingServiceWrite;
+import com.sap.sailing.gwt.ui.client.SailingServiceWriteAsync;
 import com.sap.sailing.gwt.ui.shared.SailingServiceConstants;
 import com.sap.sse.common.Duration;
 import com.sap.sse.common.TimePoint;
+import com.sap.sse.security.shared.impl.User;
 
 /**
  * Provider-neutral server-side subscription that buffers {@link Wind} fixes per {@link WindSource}. Connectivity is
  * supplied by {@link WindLiveSubscriptionFeeder}s and is therefore kept separate from the subscription lifecycle and
  * buffered wind data.
+ * <p>
+ * 
+ * Clients request an instance of this, e.g., through {@link SailingServiceWrite} / {@link SailingServiceWriteAsync}
+ * and receive the subscription {@link #getSubscriptionId() ID} which they can use in subsequent calls to work with
+ * the subscription. The typical pattern then is that the requesting client keeps asking {@link #getAndClearWinds(String)}
+ * on a regular basis, thus obtaining new {@link Wind} fixes supplied by any of the {@link #feeders}. Access timestamps
+ * are updated, and so {@link #isIdle(TimePoint)} is used by the {@link SailingServiceWriteImpl} service to recognize,
+ * stop and remove idle subscriptions.<p>
+ * 
+ * The {@link WindLiveSubscriptionFeeder feeders} have to be added by the service creating this object, using the
+ * {@link #addFeeder(WindLiveSubscriptionFeeder)}. The feeders have to supply {@link Wind} objects to this subscription
+ * using the {@link #addWind(WindSource, Wind)} method. This subscription will queue those new readings for the
+ * client to pick up with {@link #getAndClearWinds(String)} asynchronously.<p>
+ * 
+ * An instance of this type is tied to an "owner" by name. This represents a {@link User} object whose
+ * {@link User#getName() name} field is a unique identifier. {@code null} is permissible as an {@link #ownerName} and
+ * represents all anonymous users. The owner name is validated in methods like {@link #getAndClearWinds(String)}
+ * and {@link #stop(String)}, and a {@link SecurityException} is thrown in case of a mismatch.
  */
 public class WindLiveSubscription {
     private static final Duration IDLE_TIMEOUT = Duration.ONE_MINUTE.times(2);
@@ -83,15 +104,19 @@ public class WindLiveSubscription {
      * polling an unusable subscription.
      */
     boolean hasFailedToConnect(TimePoint currentTime) {
+        boolean result;
         if (createdAt.until(currentTime).compareTo(CONNECTION_TIMEOUT) < 0) {
-            return false;
-        }
-        for (final WindLiveSubscriptionFeeder feeder : feeders) {
-            if (!feeder.hasConnected()) {
-                return true;
+            result = false;
+        } else {
+            result = false;
+            for (final WindLiveSubscriptionFeeder feeder : feeders) {
+                if (!feeder.hasConnected()) {
+                    result = true;
+                    break;
+                }
             }
         }
-        return false;
+        return result;
     }
     
     synchronized void stop() throws Exception {

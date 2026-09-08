@@ -399,6 +399,7 @@ import com.sap.sse.gwt.server.filestorage.FileStorageServiceDTOUtils;
 import com.sap.sse.gwt.shared.filestorage.FileStorageServiceDTO;
 import com.sap.sse.gwt.shared.filestorage.FileStorageServicePropertyErrorsDTO;
 import com.sap.sse.security.Action;
+import com.sap.sse.security.SecurityService;
 import com.sap.sse.security.shared.HasPermissions.DefaultActions;
 import com.sap.sse.security.shared.QualifiedObjectIdentifier;
 import com.sap.sse.security.shared.RoleDefinition;
@@ -406,6 +407,7 @@ import com.sap.sse.security.shared.TypeRelativeObjectIdentifier;
 import com.sap.sse.security.shared.impl.Ownership;
 import com.sap.sse.security.shared.impl.SecuredSecurityTypes;
 import com.sap.sse.security.shared.impl.SecuredSecurityTypes.ServerActions;
+import com.sap.sse.security.shared.impl.User;
 import com.sap.sse.security.shared.impl.UserGroup;
 import com.sap.sse.security.ui.server.SecurityDTOUtil;
 import com.sap.sse.security.ui.shared.SuccessInfo;
@@ -2203,6 +2205,10 @@ public class SailingServiceWriteImpl extends SailingServiceImpl implements Saili
         return subscription;
     }
 
+    /**
+     * The {@link SecurityService#getCurrentUser() current user's} {@link User#getName() name}, or {@code null}
+     * if the current user is {@code null}, indicating an anonymous user who is not logged in.
+     */
     private String getCurrentUserNameForWindLiveSubscription() {
         return getSecurityService().getCurrentUser() == null
                 ? null
