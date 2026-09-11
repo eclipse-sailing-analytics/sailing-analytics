@@ -69,8 +69,8 @@ public final class HomeServiceUtil {
     private static final int MINIMUM_IMAGE_HEIGHT_FOR_SAILING_PHOTOGRAPHY_IN_PIXELS = 500;
     
     public static String findEventThumbnailImageUrlAsString(EventBase event) {
-        ImageDescriptor url = findEventThumbnailImage(event);
-        return url == null ? null : url.getURL().toString();
+        ImageDescriptor image = findEventThumbnailImage(event);
+        return image == null || image.isMissing() ? null : image.getURL().toString();
     }
     
     public static boolean isSingleRegatta(Event event) {
@@ -134,12 +134,12 @@ public final class HomeServiceUtil {
     
     public static String getFeaturedImageUrlAsString(EventBase event) {
         ImageDescriptor image = getFeaturedImage(event);
-        return image == null ? null : image.getURL().toString();
+        return image == null || image.isMissing() ? null : image.getURL().toString();
     }
     
     public static String getStageImageURLAsString(final EventBase event) {
         ImageDescriptor image = getStageImage(event);
-        return image == null ? null : image.getURL().toString();
+        return image == null || image.isMissing() ? null : image.getURL().toString();
     }
     
     public static ImageDescriptor getStageImage(final EventBase event) {
@@ -156,13 +156,20 @@ public final class HomeServiceUtil {
     }
 
     public static List<ImageDescriptor> getPhotoGalleryImages(EventBase event) {
-        return event.findImagesWithTag(MediaTagConstants.GALLERY.getName());
+        final List<ImageDescriptor> result = new ArrayList<>();
+        for (final ImageDescriptor image : event.findImagesWithTag(MediaTagConstants.GALLERY.getName())) {
+            if (!image.isMissing()) {
+                result.add(image);
+            }
+        }
+        return result;
     }
     
     public static List<ImageDescriptor> getSailingLovesPhotographyImages(EventBase event) {
         final List<ImageDescriptor> acceptedImages = new LinkedList<>();
         for (ImageDescriptor candidateImageUrl : event.getImages()) {
-            if (candidateImageUrl.hasSize() && candidateImageUrl.getHeightInPx() > MINIMUM_IMAGE_HEIGHT_FOR_SAILING_PHOTOGRAPHY_IN_PIXELS) {
+            if (!candidateImageUrl.isMissing() && candidateImageUrl.hasSize()
+                    && candidateImageUrl.getHeightInPx() > MINIMUM_IMAGE_HEIGHT_FOR_SAILING_PHOTOGRAPHY_IN_PIXELS) {
                 if (candidateImageUrl.hasTag(MediaTagConstants.STAGE.getName()) || candidateImageUrl.hasTag(MediaTagConstants.GALLERY.getName())) {
                     acceptedImages.add(candidateImageUrl);
                 }
@@ -203,7 +210,7 @@ public final class HomeServiceUtil {
     }
     
     public static boolean hasPhotos(Event event) {
-        return event.hasImageWithTag(MediaTagConstants.GALLERY.getName());
+        return !getPhotoGalleryImages(event).isEmpty();
     }
     
     public static boolean hasVideos(Event event) {

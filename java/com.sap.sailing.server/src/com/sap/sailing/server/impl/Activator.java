@@ -62,6 +62,7 @@ import com.sap.sailing.server.impl.preferences.model.StoredDataMiningReportPrefe
 import com.sap.sailing.server.impl.preferences.model.TrackedEventPreferences;
 import com.sap.sailing.server.interfaces.RacingEventService;
 import com.sap.sailing.server.notification.impl.SailingNotificationServiceImpl;
+import com.sap.sailing.server.operationaltransformation.UpdateEventImageHealth;
 import com.sap.sailing.server.preferences.SailorProfilePreferences;
 import com.sap.sailing.server.security.EventManagerRole;
 import com.sap.sailing.server.security.SailingViewerRole;
@@ -74,7 +75,6 @@ import com.sap.sse.classloading.ServiceTrackerCustomizerForClassLoaderSupplierRe
 import com.sap.sse.common.Duration;
 import com.sap.sse.common.TypeBasedServiceFinder;
 import com.sap.sse.common.Util;
-import com.sap.sse.common.Util.Pair;
 import com.sap.sse.common.mail.MailException;
 import com.sap.sse.mail.MailService;
 import com.sap.sse.mail.queue.MailQueue;
@@ -130,8 +130,6 @@ public class Activator implements BundleActivator {
     private final boolean eventImageOwnerNotificationEnabled;
 
     private Set<ServiceRegistration<?>> registrations = new HashSet<>();
-    
-    private final Set<Pair<String, String>> brokenEventImages = new HashSet<>();
     
     private ScheduledFuture<?> eventImageHealthCheckTask;
 
@@ -231,66 +229,49 @@ public class Activator implements BundleActivator {
         return context;
     }
     
-    /**
-     * Tracks whether a broken image for the given event is newly detected in this run.
-     *
-     * <p>Returns {@code true} (and records the pair) the first time a broken image is seen for an
-     * event. Returns {@code false} on subsequent calls for the same pair until the image recovers.
-     * When {@code imageAvailable} is {@code true} the pair is removed, so a future breakage is
-     * treated as new again.
-     */
-    boolean isNewlyBrokenEventImage(String eventIdentifier, String imageUrl, boolean imageAvailable) {
-        final Pair<String, String> eventImage = new Pair<>(eventIdentifier, imageUrl);
-        if (imageAvailable) {
-            brokenEventImages.remove(eventImage);
-            return false;
-        }
-        return brokenEventImages.add(eventImage);
-    }
-    
-    /**
-     * Checks the images of all given events and notifies owners of newly broken ones.
-     *
-     * <p>Each distinct image URL is checked at most once per call (results are cached in
-     * {@code imageAvailabilityByUrl}), so a URL shared across multiple events is only fetched once.
-     * Skipped on replica servers ({@code securityService.getMasterDescriptor() != null}).
-     * After the run, any (event, imageUrl) pair that was previously broken but is no longer present
-     * in the current event list is forgotten from {@code brokenEventImages}.
-     *
-     * <p>Package-visible for testing.
-     */
-    void checkEventImages(Iterable<Event> events, SecurityService securityService, ImageUrlHealthChecker imageUrlHealthChecker) {
+    void checkEventImages(Iterable<Event> events, SecurityService securityService,
+            ImageUrlHealthChecker imageUrlHealthChecker, RacingEventService eventService) {
         if (securityService.getMasterDescriptor() != null) {
             return;
         }
         final Map<String, Boolean> imageAvailabilityByUrl = new HashMap<>();
-        final Set<Util.Pair<String, String>> seenEventImages = new HashSet<>();
         for (final Event event : events) {
             for (final ImageDescriptor image : event.getImages()) {
                 final URL imageUrl = image.getURL();
                 if (imageUrl != null) {
                     final String imageUrlAsString = imageUrl.toString();
-                    final String eventIdentifier = event.getId().toString();
-                    seenEventImages.add(new Util.Pair<>(eventIdentifier, imageUrlAsString));
                     Boolean imageAvailable = imageAvailabilityByUrl.get(imageUrlAsString);
                     if (imageAvailable == null) {
                         imageAvailable = imageUrlHealthChecker.isImageAvailable(imageUrl);
                         imageAvailabilityByUrl.put(imageUrlAsString, imageAvailable);
                     }
-                    if (isNewlyBrokenEventImage(eventIdentifier, imageUrlAsString, imageAvailable)) {
-                        notifyEventOwnerAboutBrokenImage(event, imageUrlAsString, securityService);
+                    if (imageAvailable) {
+                        if (image.isMissing() || image.isMissingMailNotificationSent()) {
+                            eventService.apply(new UpdateEventImageHealth(event.getId(), imageUrlAsString,
+                                    /* missing */ false, /* missingMailNotificationSent */ false));
+                        }
+                    } else {
+                        boolean notificationSent = image.isMissingMailNotificationSent();
+                        if (!notificationSent) {
+                            notificationSent = notifyEventOwnerAboutBrokenImage(event, imageUrlAsString,
+                                    securityService);
+                        }
+                        if (!image.isMissing() || image.isMissingMailNotificationSent() != notificationSent) {
+                            eventService.apply(new UpdateEventImageHealth(event.getId(), imageUrlAsString,
+                                    /* missing */ true, notificationSent));
+                        }
                     }
                 }
             }
         }
-        brokenEventImages.retainAll(seenEventImages);
     }
     
     private void checkEventImages() {
         try {
             final SecurityService securityService = securityServiceTracker.getInitializedService(0);
             if (securityService != null) {
-                checkEventImages(racingEventService.getAllEvents(), securityService, new ImageUrlHealthChecker());
+                checkEventImages(racingEventService.getAllEvents(), securityService, new ImageUrlHealthChecker(),
+                        racingEventService);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -306,35 +287,30 @@ public class Activator implements BundleActivator {
                         EVENT_IMAGE_CHECK_INTERVAL.asMillis(), TimeUnit.MILLISECONDS);
     }
 
-    /**
-     * Sends a mail to the event owner when an image becomes unavailable.
-     *
-     * <p>If the owner cannot be determined, logs a warning instead. If owner notification is
-     * disabled via {@value #EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME}, logs what would
-     * have been sent without actually sending.
-     */
-    private void notifyEventOwnerAboutBrokenImage(Event event, String imageUrl, SecurityService securityService) {
+    private boolean notifyEventOwnerAboutBrokenImage(Event event, String imageUrl, SecurityService securityService) {
         final OwnershipAnnotation ownership = securityService.getOwnership(event.getIdentifier());
         final User owner = ownership == null ? null : ownership.getAnnotation().getUserOwner();
         if (owner == null) {
             logger.warning("Cannot notify owner about broken image " + imageUrl + " for event " + event.getName()
                     + " because the event has no user owner");
-        } else {
-            final String subject = "Broken image for event " + event.getName();
-            final String body = "The image " + imageUrl + " configured for event \"" + event.getName()
-                    + "\" is no longer available. Please update or replace the image.";
-            if (!eventImageOwnerNotificationEnabled) {
-                logger.warning("Would notify owner " + owner.getName() + " about broken image " + imageUrl
-                        + " for event " + event.getName() + "; enable with -D"
-                        + EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME + "=true");
-                return;
-            }
-            try {
-                securityService.sendMail(owner.getName(), subject, body);
-            } catch (MailException e) {
-                logger.log(Level.SEVERE, "Could not notify owner " + owner.getName() + " about broken image "
-                        + imageUrl + " for event " + event.getName(), e);
-            }
+            return false;
+        }
+        final String subject = "Broken image for event " + event.getName();
+        final String body = "The image " + imageUrl + " configured for event \"" + event.getName()
+                + "\" is no longer available. Please update or replace the image.";
+        if (!eventImageOwnerNotificationEnabled) {
+            logger.warning("Would notify owner " + owner.getName() + " about broken image " + imageUrl
+                    + " for event " + event.getName() + "; enable with -D"
+                    + EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME + "=true");
+            return false;
+        }
+        try {
+            securityService.sendMail(owner.getName(), subject, body);
+            return true;
+        } catch (MailException e) {
+            logger.log(Level.SEVERE, "Could not notify owner " + owner.getName() + " about broken image "
+                    + imageUrl + " for event " + event.getName(), e);
+            return false;
         }
     }
 

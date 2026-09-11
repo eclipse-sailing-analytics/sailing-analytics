@@ -4041,6 +4041,28 @@ Replicator {
         // to keep changes minimial
         mongoObjectFactory.storeEvent(event);
     }
+    
+    @Override
+    public void updateEventImageHealth(UUID id, String imageUrl, boolean missing, boolean missingMailNotificationSent) {
+        final Event event = eventsById.get(id);
+        if (event == null) {
+            throw new IllegalArgumentException("Sailing event with ID " + id + " does not exist.");
+        }
+        boolean imageFound = false;
+        for (final ImageDescriptor image : event.getImages()) {
+            if (image.getURL() != null && imageUrl.equals(image.getURL().toString())) {
+                image.setMissing(missing);
+                image.setMissingMailNotificationSent(missingMailNotificationSent);
+                imageFound = true;
+            }
+        }
+        if (imageFound) {
+            mongoObjectFactory.storeEvent(event);
+        } else {
+            logger.warning("Could not update image health for URL " + imageUrl + " because it is not attached to event "
+                    + event.getName());
+        }
+    }
 
     @Override
     public void renameEvent(UUID id, String newName) {
