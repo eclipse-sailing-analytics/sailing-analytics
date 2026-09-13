@@ -231,7 +231,7 @@ public class Activator implements BundleActivator {
     
     void checkEventImages(Iterable<Event> events, SecurityService securityService,
             ImageUrlHealthChecker imageUrlHealthChecker, RacingEventService eventService) {
-        if (securityService.getMasterDescriptor() != null) {
+        if (eventService.getMasterDescriptor() != null) {
             return;
         }
         final Map<String, Boolean> imageAvailabilityByUrl = new HashMap<>();
@@ -253,8 +253,7 @@ public class Activator implements BundleActivator {
                     } else {
                         boolean notificationSent = image.isMissingMailNotificationSent();
                         if (!notificationSent) {
-                            notificationSent = notifyEventOwnerAboutBrokenImage(event, imageUrlAsString,
-                                    securityService);
+                            notificationSent = notifyEventOwnerAboutBrokenImage(event, image, securityService);
                         }
                         if (!image.isMissing() || image.isMissingMailNotificationSent() != notificationSent) {
                             eventService.apply(new UpdateEventImageHealth(event.getId(), imageUrlAsString,
@@ -287,20 +286,23 @@ public class Activator implements BundleActivator {
                         EVENT_IMAGE_CHECK_INTERVAL.asMillis(), TimeUnit.MILLISECONDS);
     }
 
-    private boolean notifyEventOwnerAboutBrokenImage(Event event, String imageUrl, SecurityService securityService) {
+    private boolean notifyEventOwnerAboutBrokenImage(Event event, ImageDescriptor image,
+            SecurityService securityService) {
+        final String imageUrl = image.getURL().toString();
+        final String imageTags = getImageTagsAsString(image);
         final OwnershipAnnotation ownership = securityService.getOwnership(event.getIdentifier());
         final User owner = ownership == null ? null : ownership.getAnnotation().getUserOwner();
         if (owner == null) {
-            logger.warning("Cannot notify owner about broken image " + imageUrl + " for event " + event.getName()
-                    + " because the event has no user owner");
+            logger.warning("Cannot notify owner about broken image " + imageUrl + " with tags " + imageTags
+                    + " for event " + event.getName() + " because the event has no user owner");
             return false;
         }
         final String subject = "Broken image for event " + event.getName();
         final String body = "The image " + imageUrl + " configured for event \"" + event.getName()
-                + "\" is no longer available. Please update or replace the image.";
+                + "\" is no longer available. Tags: " + imageTags + ". Please update or replace the image.";
         if (!eventImageOwnerNotificationEnabled) {
             logger.warning("Would notify owner " + owner.getName() + " about broken image " + imageUrl
-                    + " for event " + event.getName() + "; enable with -D"
+                    + " with tags " + imageTags + " for event " + event.getName() + "; enable with -D"
                     + EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME + "=true");
             return false;
         }
@@ -309,9 +311,20 @@ public class Activator implements BundleActivator {
             return true;
         } catch (MailException e) {
             logger.log(Level.SEVERE, "Could not notify owner " + owner.getName() + " about broken image "
-                    + imageUrl + " for event " + event.getName(), e);
+                    + imageUrl + " with tags " + imageTags + " for event " + event.getName(), e);
             return false;
         }
+    }
+
+    private String getImageTagsAsString(ImageDescriptor image) {
+        final StringBuilder result = new StringBuilder();
+        for (String tag : image.getTags()) {
+            if (result.length() > 0) {
+                result.append(", ");
+            }
+            result.append(tag);
+        }
+        return result.length() == 0 ? "<none>" : result.toString();
     }
 
     public void stop(BundleContext context) throws Exception {

@@ -1,5 +1,6 @@
 package com.sap.sailing.server.impl;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -108,15 +109,14 @@ public class ImageUrlHealthCheckerTest {
         final Event event = mockEvent("Event", imageUrl, /* missing */ false, /* notificationSent */ false);
         final SecurityService securityService = mock(SecurityService.class);
         mockOwnership(securityService, event, "owner");
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(false);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
 
         verify(securityService, times(1)).sendMail("owner", "Broken image for event Event",
-                "The image http://example.com/image.jpg configured for event \"Event\" is no longer available. "
+                "The image http://example.com/image.jpg configured for event \"Event\" is no longer available. Tags: Stage, Teaser. "
                         + "Please update or replace the image.");
         verifyImageHealthUpdate(eventService, event, imageUrl, /* missing */ true, /* notificationSent */ true);
     }
@@ -127,8 +127,7 @@ public class ImageUrlHealthCheckerTest {
         final Event event = mockEvent("Event", imageUrl, /* missing */ true, /* notificationSent */ true);
         final SecurityService securityService = mock(SecurityService.class);
         mockOwnership(securityService, event, "owner");
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(false);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
@@ -144,15 +143,14 @@ public class ImageUrlHealthCheckerTest {
         final Event event = mockEvent("Event", imageUrl, /* missing */ true, /* notificationSent */ false);
         final SecurityService securityService = mock(SecurityService.class);
         mockOwnership(securityService, event, "owner");
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(false);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
 
         verify(securityService, times(1)).sendMail("owner", "Broken image for event Event",
-                "The image http://example.com/image.jpg configured for event \"Event\" is no longer available. "
+                "The image http://example.com/image.jpg configured for event \"Event\" is no longer available. Tags: Stage, Teaser. "
                         + "Please update or replace the image.");
         verifyImageHealthUpdate(eventService, event, imageUrl, /* missing */ true, /* notificationSent */ true);
     }
@@ -162,8 +160,7 @@ public class ImageUrlHealthCheckerTest {
         final URL imageUrl = new URL("http://example.com/image.jpg");
         final Event event = mockEvent("Event", imageUrl, /* missing */ true, /* notificationSent */ true);
         final SecurityService securityService = mock(SecurityService.class);
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(true);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(true);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
@@ -178,8 +175,7 @@ public class ImageUrlHealthCheckerTest {
         final URL imageUrl = new URL("http://example.com/image.jpg");
         final Event event = mockEvent("Event", imageUrl, /* missing */ false, /* notificationSent */ false);
         final SecurityService securityService = mock(SecurityService.class);
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(true);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(true);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
@@ -196,19 +192,18 @@ public class ImageUrlHealthCheckerTest {
         final SecurityService securityService = mock(SecurityService.class);
         mockOwnership(securityService, firstEvent, "first-owner");
         mockOwnership(securityService, secondEvent, "second-owner");
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(false);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Arrays.asList(firstEvent, secondEvent),
                 securityService, imageUrlHealthChecker, eventService);
 
-        verify(imageUrlHealthChecker, times(1)).isImageAvailable(imageUrl);
+        assertEquals(1, imageUrlHealthChecker.getNumberOfChecks());
         verify(securityService, times(1)).sendMail("first-owner", "Broken image for event First Event",
-                "The image http://example.com/shared.jpg configured for event \"First Event\" is no longer available. "
+                "The image http://example.com/shared.jpg configured for event \"First Event\" is no longer available. Tags: Stage, Teaser. "
                         + "Please update or replace the image.");
         verify(securityService, times(1)).sendMail("second-owner", "Broken image for event Second Event",
-                "The image http://example.com/shared.jpg configured for event \"Second Event\" is no longer available. "
+                "The image http://example.com/shared.jpg configured for event \"Second Event\" is no longer available. Tags: Stage, Teaser. "
                         + "Please update or replace the image.");
         verify(eventService, times(2)).apply(any(UpdateEventImageHealth.class));
     }
@@ -220,8 +215,7 @@ public class ImageUrlHealthCheckerTest {
         final SecurityService securityService = mock(SecurityService.class);
         mockOwnership(securityService, event, "owner");
         doThrow(new MailException("test failure")).when(securityService).sendMail(anyString(), anyString(), anyString());
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(false);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
@@ -236,8 +230,7 @@ public class ImageUrlHealthCheckerTest {
         final Event event = mockEvent("Event", imageUrl, /* missing */ false, /* notificationSent */ false);
         final SecurityService securityService = mock(SecurityService.class);
         mockOwnership(securityService, event, "owner");
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(false);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         createActivatorWithOwnerNotificationEnabled(false).checkEventImages(Collections.singleton(event),
@@ -248,29 +241,44 @@ public class ImageUrlHealthCheckerTest {
     }
     
     @Test
-    public void testEventImagesAreNotCheckedOnReplica() throws Exception {
+    public void testEventImagesAreNotCheckedWhenRacingEventServiceIsReplica() throws Exception {
+        final URL imageUrl = new URL("http://example.com/image.jpg");
+        final Event event = mockEvent("Event", imageUrl, /* missing */ false, /* notificationSent */ false);
+        final SecurityService securityService = mock(SecurityService.class);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
+        final RacingEventService eventService = mock(RacingEventService.class);
+        when(eventService.getMasterDescriptor()).thenReturn(mock(ReplicationMasterDescriptor.class));
+
+        new Activator().checkEventImages(Collections.singleton(event), securityService, imageUrlHealthChecker,
+                eventService);
+
+        assertEquals(0, imageUrlHealthChecker.getNumberOfChecks());
+        verify(securityService, never()).sendMail(anyString(), anyString(), anyString());
+        verify(eventService, never()).apply(any(UpdateEventImageHealth.class));
+    }
+
+    @Test
+    public void testEventImagesAreCheckedWhenOnlySecurityServiceIsReplica() throws Exception {
         final URL imageUrl = new URL("http://example.com/image.jpg");
         final Event event = mockEvent("Event", imageUrl, /* missing */ false, /* notificationSent */ false);
         final SecurityService securityService = mock(SecurityService.class);
         when(securityService.getMasterDescriptor()).thenReturn(mock(ReplicationMasterDescriptor.class));
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(true);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         new Activator().checkEventImages(Collections.singleton(event), securityService, imageUrlHealthChecker,
                 eventService);
 
-        verify(imageUrlHealthChecker, never()).isImageAvailable(imageUrl);
-        verify(securityService, never()).sendMail(anyString(), anyString(), anyString());
+        assertEquals(1, imageUrlHealthChecker.getNumberOfChecks());
         verify(eventService, never()).apply(any(UpdateEventImageHealth.class));
     }
-    
+
     @Test
     public void testBrokenEventImageWithoutOwnerDoesNotSendMail() throws Exception {
         final URL imageUrl = new URL("http://example.com/image.jpg");
         final Event event = mockEvent("Event", imageUrl, /* missing */ false, /* notificationSent */ false);
         final SecurityService securityService = mock(SecurityService.class);
-        final ImageUrlHealthChecker imageUrlHealthChecker = mock(ImageUrlHealthChecker.class);
-        when(imageUrlHealthChecker.isImageAvailable(imageUrl)).thenReturn(false);
+        final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
 
         new Activator().checkEventImages(Collections.singleton(event), securityService, imageUrlHealthChecker,
@@ -288,6 +296,7 @@ public class ImageUrlHealthCheckerTest {
         when(event.getName()).thenReturn(name);
         when(event.getImages()).thenReturn(Collections.singleton(image));
         when(image.getURL()).thenReturn(imageUrl);
+        when(image.getTags()).thenReturn(Arrays.asList("Stage", "Teaser"));
         when(image.isMissing()).thenReturn(missing);
         when(image.isMissingMailNotificationSent()).thenReturn(notificationSent);
         return event;
@@ -322,6 +331,25 @@ public class ImageUrlHealthCheckerTest {
         final ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         ImageIO.write(image, "jpg", outputStream);
         return outputStream.toByteArray();
+    }
+
+    private static class TestImageUrlHealthChecker extends ImageUrlHealthChecker {
+        private final boolean imageAvailable;
+        private int numberOfChecks;
+
+        private TestImageUrlHealthChecker(boolean imageAvailable) {
+            this.imageAvailable = imageAvailable;
+        }
+
+        @Override
+        boolean isImageAvailable(URL imageUrl) {
+            numberOfChecks++;
+            return imageAvailable;
+        }
+
+        private int getNumberOfChecks() {
+            return numberOfChecks;
+        }
     }
 
     private class TestHttpServer implements Runnable {
