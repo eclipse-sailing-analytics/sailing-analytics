@@ -1065,7 +1065,7 @@ public interface RacingEventService extends TrackedRegattaRegistry, RegattaFetch
     void addOrReplaceExpeditionDeviceConfiguration(UUID deviceConfigurationId, String name, Integer expeditionBoatId);
 
     void removeExpeditionDeviceConfiguration(UUID deviceUuid);
-    
+
     /**
      * Returns the number of tracked races that are not {@link TrackedRace#hasFinishedLoading() done with loading}.
      */
@@ -1085,7 +1085,7 @@ public interface RacingEventService extends TrackedRegattaRegistry, RegattaFetch
     /**
      * Identifies all Events, that use the given {@link Leaderboard}'s {@link CourseArea}s and contain it in their
      * {@link LeaderboardGroup}
-     * 
+     *
      * @return A Set of Events, may be empty, but never {@code null}; search is restricted to only these events
      */
     Set<Event> findEventsContainingLeaderboardAndMatchingAtLeastOneCourseArea(Leaderboard leaderboard, Iterable<Event> events);
@@ -1115,4 +1115,33 @@ public interface RacingEventService extends TrackedRegattaRegistry, RegattaFetch
             TimePoint timePoint, LeaderboardGroup leaderboardGroup, String leaderboardName,
             WindLegTypeAndLegBearingAndORCPerformanceCurveCache cache) throws NoWindException,
             NotEnoughDataHasBeenAddedException, MaxIterationsExceededException, FunctionEvaluationException;
+
+    /**
+     * Registers a new wind live subscription with the given feeder and returns its ID.
+     * Ownership is tracked via {@code ownerName} and validated on subsequent calls.
+     */
+    String registerWindLiveSubscription(String ownerName, WindLiveSubscription subscription);
+
+    /**
+     * Returns and clears all buffered wind fixes for the subscription identified by {@code subscriptionId}.
+     * The {@code ownerName} must match the owner set when the subscription was registered.
+     *
+     * @throws IllegalArgumentException if no subscription with {@code subscriptionId} is known
+     * @throws SecurityException if {@code ownerName} does not match the subscription owner
+     */
+    Map<com.sap.sailing.domain.common.WindSource, List<com.sap.sailing.domain.common.Wind>> getAndClearWindLiveUpdates(
+            String ownerName, String subscriptionId);
+
+    /**
+     * Stops and removes the wind live subscription identified by {@code subscriptionId}.
+     *
+     * @throws IllegalArgumentException if no subscription with {@code subscriptionId} is known
+     * @throws SecurityException if {@code ownerName} does not match the subscription owner
+     */
+    void removeWindLiveSubscription(String ownerName, String subscriptionId) throws Exception;
+
+    /**
+     * Stops and removes all active wind live subscriptions. Called during service shutdown.
+     */
+    void stopAllWindLiveSubscriptions();
 }

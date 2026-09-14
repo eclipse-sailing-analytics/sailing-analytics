@@ -3,10 +3,13 @@ package com.sap.sailing.gwt.ui.server;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.sap.sailing.declination.DeclinationService;
 import com.sap.sailing.domain.common.WindSource;
 import com.sap.sailing.domain.igtimiadapter.IgtimiConnection;
 import com.sap.sailing.domain.igtimiadapter.LiveDataConnection;
 import com.sap.sailing.domain.igtimiadapter.shared.IgtimiWindReceiver;
+import com.sap.sailing.server.interfaces.WindLiveSubscription;
+import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeeder;
 
 /**
  * Feeds wind received through an Igtimi live connection into a provider-neutral
@@ -17,11 +20,11 @@ public class IgtimiWindLiveSubscriptionFeeder implements WindLiveSubscriptionFee
     private final IgtimiWindReceiver windReceiver;
     private volatile boolean connected;
 
-    IgtimiWindLiveSubscriptionFeeder(WindLiveSubscription subscription, IgtimiConnection connection,
-            Map<String, WindSource> windSourcesByDeviceSerialNumber) throws Exception {
+    IgtimiWindLiveSubscriptionFeeder(final WindLiveSubscription subscription, final IgtimiConnection connection,
+            final Map<String, WindSource> windSourcesByDeviceSerialNumber, final boolean correctByDeclination) throws Exception {
         final Map<String, WindSource> windSourcesByDeviceSerialNumberCopy =
                 new HashMap<>(windSourcesByDeviceSerialNumber);
-        windReceiver = new IgtimiWindReceiver(/* no declination correction */ null);
+        windReceiver = new IgtimiWindReceiver(correctByDeclination ? DeclinationService.INSTANCE : null);
         windReceiver.addListener((wind, fixesUsed, deviceSerialNumber)->{
             final WindSource windSource = windSourcesByDeviceSerialNumberCopy.get(deviceSerialNumber);
             if (windSource != null) {

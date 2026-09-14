@@ -250,6 +250,7 @@ import com.sap.sailing.domain.coursetemplate.WaypointTemplate;
 import com.sap.sailing.domain.coursetemplate.WaypointWithMarkConfiguration;
 import com.sap.sailing.domain.coursetemplate.impl.CommonMarkPropertiesImpl;
 import com.sap.sailing.domain.coursetemplate.impl.WaypointTemplateImpl;
+import com.sap.sailing.declination.DeclinationService;
 import com.sap.sailing.domain.igtimiadapter.DataAccessWindow;
 import com.sap.sailing.domain.igtimiadapter.Device;
 import com.sap.sailing.domain.igtimiadapter.IgtimiConnection;
@@ -1663,7 +1664,7 @@ public class SailingServiceImpl extends ResultCachingProxiedRemoteServiceServlet
         final Map<WindSource, List<Wind>> windsByWindSource = new HashMap<>();
         final List<Wind> winds = new ArrayList<>();
         windsByWindSource.put(new WindSourceWithAdditionalID(WindSourceType.EXPEDITION, serialNumber), winds);
-        final IgtimiWindReceiver windReceiver = new IgtimiWindReceiver(/* no declination correction */ null);
+        final IgtimiWindReceiver windReceiver = new IgtimiWindReceiver(DeclinationService.INSTANCE);
         windReceiver.addListener((final Wind wind, final Set<Fix> fixesUsed, final String deviceSerialNumber) -> winds.add(wind));
         final IgtimiConnection connection = createIgtimiConnection(Optional.empty());
         try {

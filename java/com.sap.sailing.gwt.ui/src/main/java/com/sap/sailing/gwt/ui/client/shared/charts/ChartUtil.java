@@ -17,6 +17,9 @@ public class ChartUtil {
      * that all series have {@link PlotOptions#setSelected(boolean)} set to <code>true</code> for all series that are
      * added to the chart and hence visible. Otherwise, the checkbox won't initially be in sync with the series'
      * visibility state.
+     * <p>
+     * TODO: revert to protected once WindLiveChart is removed (see bug6150); it was widened to public only to allow
+     * WindLiveChart in a different package to access it.
      */
     public static void useCheckboxesToShowAndHide(final Chart chart, final Runnable onVisibilityChanged) {
         chart.setLegend(new Legend().setEnabled(true).setBorderWidth(0).setSymbolPadding(25)); // make room for checkbox

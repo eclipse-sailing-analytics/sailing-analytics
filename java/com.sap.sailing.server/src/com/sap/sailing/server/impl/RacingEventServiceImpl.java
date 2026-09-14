@@ -283,6 +283,7 @@ import com.sap.sailing.server.interfaces.RacingEventService;
 import com.sap.sailing.server.interfaces.RacingEventServiceOperation;
 import com.sap.sailing.server.interfaces.SimulationService;
 import com.sap.sailing.server.interfaces.TaggingService;
+import com.sap.sailing.server.interfaces.WindLiveSubscription;
 import com.sap.sailing.server.masterdata.MasterDataImporter;
 import com.sap.sailing.server.notification.EmptySailingNotificationService;
 import com.sap.sailing.server.notification.SailingNotificationService;
@@ -622,6 +623,9 @@ Replicator {
     private transient final ConcurrentHashMap<Leaderboard, ScoreCorrectionListener> scoreCorrectionListenersByLeaderboard;
 
     private transient final ConcurrentHashMap<RaceDefinition, RaceTrackingConnectivityParameters> connectivityParametersByRace;
+
+    private final ConcurrentHashMap<String, WindLiveSubscription> windLiveSubscriptions = new ConcurrentHashMap<>();
+    private final ScheduledFuture<?> windLiveSubscriptionCleanupTask;
 
     private final TrackedRaceStatisticsCache trackedRaceStatisticsCache;
 
@@ -1008,6 +1012,9 @@ Replicator {
             getMongoObjectFactory().removeAllConnectivityParametersForRacesToRestore();
         }
         this.trackedRaceStatisticsCache = trackedRaceStatisticsCache;
+        windLiveSubscriptionCleanupTask = ThreadPoolUtil.INSTANCE
+                .getDefaultBackgroundTaskThreadPoolExecutor()
+                .scheduleAtFixedRate(this::removeIdleWindLiveSubscriptions, 30, 30, TimeUnit.SECONDS);
         anniversaryRaceDeterminator = new AnniversaryRaceDeterminatorImpl(this, remoteSailingServerSet,
                 new QuarterChecker(), new SameDigitChecker());
         raceChangeObserverForAnniversaryDetection = new RaceChangeObserverForAnniversaryDetection(anniversaryRaceDeterminator);
@@ -6234,5 +6241,61 @@ Replicator {
             result = null;
         }
         return result;
+    }
+
+    @Override
+    public String registerWindLiveSubscription(final String ownerName, final WindLiveSubscription subscription) {
+        windLiveSubscriptions.put(subscription.getSubscriptionId(), subscription);
+        return subscription.getSubscriptionId();
+    }
+
+    @Override
+    public Map<WindSource, List<Wind>> getAndClearWindLiveUpdates(
+            final String ownerName, final String subscriptionId) {
+        return getExistingWindLiveSubscription(subscriptionId).getAndClearWinds(ownerName);
+    }
+
+    @Override
+    public void removeWindLiveSubscription(final String ownerName, final String subscriptionId) throws Exception {
+        final WindLiveSubscription subscription = getExistingWindLiveSubscription(subscriptionId);
+        subscription.stop(ownerName);
+        windLiveSubscriptions.remove(subscriptionId, subscription);
+    }
+
+    @Override
+    public void stopAllWindLiveSubscriptions() {
+        windLiveSubscriptionCleanupTask.cancel(false);
+        for (final WindLiveSubscription subscription : windLiveSubscriptions.values()) {
+            try {
+                subscription.stop();
+            } catch (final Exception e) {
+                logger.log(Level.WARNING, "Error stopping wind live subscription " + subscription.getSubscriptionId(), e);
+            }
+        }
+        windLiveSubscriptions.clear();
+    }
+
+    private WindLiveSubscription getExistingWindLiveSubscription(final String subscriptionId) {
+        final WindLiveSubscription subscription = windLiveSubscriptions.get(subscriptionId);
+        if (subscription == null) {
+            throw new IllegalArgumentException("Unknown wind live subscription " + subscriptionId);
+        }
+        return subscription;
+    }
+
+    private void removeIdleWindLiveSubscriptions() {
+        final TimePoint currentTime = TimePoint.now();
+        for (final Map.Entry<String, WindLiveSubscription> entry : windLiveSubscriptions.entrySet()) {
+            final WindLiveSubscription subscription = entry.getValue();
+            if ((subscription.isIdle(currentTime) || subscription.hasFailedToConnect(currentTime))
+                    && windLiveSubscriptions.remove(entry.getKey(), subscription)) {
+                try {
+                    subscription.stop();
+                } catch (final Exception e) {
+                    logger.log(Level.WARNING,
+                            "Error stopping wind live subscription " + subscription.getSubscriptionId(), e);
+                }
+            }
+        }
     }
 }
