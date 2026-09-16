@@ -231,33 +231,33 @@ public class Activator implements BundleActivator {
     
     void checkEventImages(Iterable<Event> events, SecurityService securityService,
             ImageUrlHealthChecker imageUrlHealthChecker, RacingEventService eventService) {
-        if (eventService.getMasterDescriptor() != null) {
-            return;
-        }
-        final Map<String, Boolean> imageAvailabilityByUrl = new HashMap<>();
-        for (final Event event : events) {
-            for (final ImageDescriptor image : event.getImages()) {
-                final URL imageUrl = image.getURL();
-                if (imageUrl != null) {
-                    final String imageUrlAsString = imageUrl.toString();
-                    Boolean imageAvailable = imageAvailabilityByUrl.get(imageUrlAsString);
-                    if (imageAvailable == null) {
-                        imageAvailable = imageUrlHealthChecker.isImageAvailable(imageUrl);
-                        imageAvailabilityByUrl.put(imageUrlAsString, imageAvailable);
-                    }
-                    if (imageAvailable) {
-                        if (image.isMissing() || image.isMissingMailNotificationSent()) {
-                            eventService.apply(new UpdateEventImageHealth(event.getId(), imageUrlAsString,
-                                    /* missing */ false, /* missingMailNotificationSent */ false));
+        // only run this on a RacingEventService primary node, not on replicas
+        if (eventService.getMasterDescriptor() == null) {
+            final Map<String, Boolean> imageAvailabilityByUrl = new HashMap<>();
+            for (final Event event : events) {
+                for (final ImageDescriptor image : event.getImages()) {
+                    final URL imageUrl = image.getURL();
+                    if (imageUrl != null) {
+                        final String imageUrlAsString = imageUrl.toString();
+                        Boolean imageAvailable = imageAvailabilityByUrl.get(imageUrlAsString);
+                        if (imageAvailable == null) {
+                            imageAvailable = imageUrlHealthChecker.isImageAvailable(imageUrl);
+                            imageAvailabilityByUrl.put(imageUrlAsString, imageAvailable);
                         }
-                    } else {
-                        boolean notificationSent = image.isMissingMailNotificationSent();
-                        if (!notificationSent) {
-                            notificationSent = notifyEventOwnerAboutBrokenImage(event, image, securityService);
-                        }
-                        if (!image.isMissing() || image.isMissingMailNotificationSent() != notificationSent) {
-                            eventService.apply(new UpdateEventImageHealth(event.getId(), imageUrlAsString,
-                                    /* missing */ true, notificationSent));
+                        if (imageAvailable) {
+                            if (image.isMissing() || image.isMissingMailNotificationSent()) {
+                                eventService.apply(new UpdateEventImageHealth(event.getId(), imageUrlAsString,
+                                        /* missing */ false, /* missingMailNotificationSent */ false));
+                            }
+                        } else {
+                            boolean notificationSent = image.isMissingMailNotificationSent();
+                            if (!notificationSent) {
+                                notificationSent = notifyEventOwnerAboutBrokenImage(event, image, securityService);
+                            }
+                            if (!image.isMissing() || image.isMissingMailNotificationSent() != notificationSent) {
+                                eventService.apply(new UpdateEventImageHealth(event.getId(), imageUrlAsString,
+                                        /* missing */ true, notificationSent));
+                            }
                         }
                     }
                 }
@@ -288,6 +288,7 @@ public class Activator implements BundleActivator {
 
     private boolean notifyEventOwnerAboutBrokenImage(Event event, ImageDescriptor image,
             SecurityService securityService) {
+        boolean result;
         final String imageUrl = image.getURL().toString();
         final String imageTags = getImageTagsAsString(image);
         final OwnershipAnnotation ownership = securityService.getOwnership(event.getIdentifier());
@@ -295,25 +296,28 @@ public class Activator implements BundleActivator {
         if (owner == null) {
             logger.warning("Cannot notify owner about broken image " + imageUrl + " with tags " + imageTags
                     + " for event " + event.getName() + " because the event has no user owner");
-            return false;
+            result = false;
+        } else {
+            final String subject = "Broken image for event " + event.getName();
+            final String body = "The image " + imageUrl + " configured for event \"" + event.getName()
+                    + "\" is no longer available. Tags: " + imageTags + ". Please update or replace the image.";
+            if (!eventImageOwnerNotificationEnabled) {
+                logger.warning("Would notify owner " + owner.getName() + " about broken image " + imageUrl
+                        + " with tags " + imageTags + " for event " + event.getName() + "; enable with -D"
+                        + EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME + "=true");
+                result = false;
+            } else {
+                try {
+                    securityService.sendMail(owner.getName(), subject, body);
+                    result = true;
+                } catch (MailException e) {
+                    logger.log(Level.SEVERE, "Could not notify owner " + owner.getName() + " about broken image "
+                            + imageUrl + " with tags " + imageTags + " for event " + event.getName(), e);
+                    result = false;
+                }
+            }
         }
-        final String subject = "Broken image for event " + event.getName();
-        final String body = "The image " + imageUrl + " configured for event \"" + event.getName()
-                + "\" is no longer available. Tags: " + imageTags + ". Please update or replace the image.";
-        if (!eventImageOwnerNotificationEnabled) {
-            logger.warning("Would notify owner " + owner.getName() + " about broken image " + imageUrl
-                    + " with tags " + imageTags + " for event " + event.getName() + "; enable with -D"
-                    + EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME + "=true");
-            return false;
-        }
-        try {
-            securityService.sendMail(owner.getName(), subject, body);
-            return true;
-        } catch (MailException e) {
-            logger.log(Level.SEVERE, "Could not notify owner " + owner.getName() + " about broken image "
-                    + imageUrl + " with tags " + imageTags + " for event " + event.getName(), e);
-            return false;
-        }
+        return result;
     }
 
     private String getImageTagsAsString(ImageDescriptor image) {

@@ -7,7 +7,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map.Entry;
@@ -146,36 +145,19 @@ public final class HomeServiceUtil {
         return event.findImageWithTag(MediaTagConstants.STAGE.getName());
     }
 
-    public static List<String> getPhotoGalleryImageURLsAsString(EventBase event) {
-        List<ImageDescriptor> urls = getPhotoGalleryImages(event);
-        List<String> result = new ArrayList<String>(urls.size());
-        for (ImageDescriptor url : urls) {
-            result.add(url.getURL().toString());
-        }
-        return result;
+    public static Iterable<String> getPhotoGalleryImageURLsAsString(EventBase event) {
+        return Util.map(getPhotoGalleryImages(event), url->url.getURL().toString());
     }
 
-    public static List<ImageDescriptor> getPhotoGalleryImages(EventBase event) {
-        final List<ImageDescriptor> result = new ArrayList<>();
-        for (final ImageDescriptor image : event.findImagesWithTag(MediaTagConstants.GALLERY.getName())) {
-            if (!image.isMissing()) {
-                result.add(image);
-            }
-        }
-        return result;
+    public static Iterable<ImageDescriptor> getPhotoGalleryImages(EventBase event) {
+        return Util.filter(event.findImagesWithTag(MediaTagConstants.GALLERY.getName()), image->!image.isMissing());
     }
     
-    public static List<ImageDescriptor> getSailingLovesPhotographyImages(EventBase event) {
-        final List<ImageDescriptor> acceptedImages = new LinkedList<>();
-        for (ImageDescriptor candidateImageUrl : event.getImages()) {
-            if (!candidateImageUrl.isMissing() && candidateImageUrl.hasSize()
-                    && candidateImageUrl.getHeightInPx() > MINIMUM_IMAGE_HEIGHT_FOR_SAILING_PHOTOGRAPHY_IN_PIXELS) {
-                if (candidateImageUrl.hasTag(MediaTagConstants.STAGE.getName()) || candidateImageUrl.hasTag(MediaTagConstants.GALLERY.getName())) {
-                    acceptedImages.add(candidateImageUrl);
-                }
-            }
-        }
-        return acceptedImages;
+    public static Iterable<ImageDescriptor> getSailingLovesPhotographyImages(EventBase event) {
+        return Util.filter(event.getImages(), candidateImageUrl->
+            !candidateImageUrl.isMissing() && candidateImageUrl.hasSize()
+                    && candidateImageUrl.getHeightInPx() > MINIMUM_IMAGE_HEIGHT_FOR_SAILING_PHOTOGRAPHY_IN_PIXELS
+                    && (candidateImageUrl.hasTag(MediaTagConstants.STAGE.getName()) || candidateImageUrl.hasTag(MediaTagConstants.GALLERY.getName())));
     }
 
     public static int calculateCompetitorsCount(Leaderboard sl) {
@@ -210,7 +192,7 @@ public final class HomeServiceUtil {
     }
     
     public static boolean hasPhotos(Event event) {
-        return !getPhotoGalleryImages(event).isEmpty();
+        return !Util.isEmpty(getPhotoGalleryImages(event));
     }
     
     public static boolean hasVideos(Event event) {

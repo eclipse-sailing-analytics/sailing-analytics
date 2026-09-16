@@ -29,40 +29,44 @@ class ImageUrlHealthChecker {
 
     boolean isImageAvailable(URL imageUrl) {
         URLConnection connection = null;
+        boolean result;
         try {
             connection = HttpUrlConnectionHelper.redirectConnection(imageUrl, timeout,
                     urlConnection -> urlConnection.setConnectTimeout((int) timeout.asMillis()));
             if (connection instanceof HttpURLConnection) {
                 final int responseCode = ((HttpURLConnection) connection).getResponseCode();
                 if (responseCode < HttpURLConnection.HTTP_OK || responseCode >= HttpURLConnection.HTTP_MULT_CHOICE) {
-                    return false;
+                    result = false;
                 }
             }
             try (InputStream inputStream = connection.getInputStream();
                     ImageInputStream imageInputStream = ImageIO.createImageInputStream(inputStream)) {
                 if (imageInputStream == null) {
-                    return false;
-                }
-                final Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInputStream);
-                if (!readers.hasNext()) {
-                    return false;
-                }
-                final ImageReader reader = readers.next();
-                try {
-                    reader.setInput(imageInputStream);
-                    reader.getWidth(0);
-                    reader.getHeight(0);
-                    return true;
-                } finally {
-                    reader.dispose();
+                    result = false;
+                } else {
+                    final Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInputStream);
+                    if (!readers.hasNext()) {
+                        result = false;
+                    } else {
+                        final ImageReader reader = readers.next();
+                        try {
+                            reader.setInput(imageInputStream);
+                            reader.getWidth(0);
+                            reader.getHeight(0);
+                            result = true;
+                        } finally {
+                            reader.dispose();
+                        }
+                    }
                 }
             }
         } catch (IOException e) {
-            return false;
+            result = false;
         } finally {
             if (connection instanceof HttpURLConnection) {
                 ((HttpURLConnection) connection).disconnect();
             }
         }
+        return result;
     }
 }

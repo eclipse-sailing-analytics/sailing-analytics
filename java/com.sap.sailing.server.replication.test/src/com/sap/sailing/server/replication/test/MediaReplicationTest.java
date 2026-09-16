@@ -364,19 +364,15 @@ public class MediaReplicationTest extends AbstractServerReplicationTest {
         ImageDescriptor replicatedImage = replica.getEvent(event.getId()).getImages().iterator().next();
         assertFalse(replicatedImage.isMissing());
         assertFalse(replicatedImage.isMissingMailNotificationSent());
-
         master.apply(new UpdateEventImageHealth(event.getId(), image.getURL().toString(),
                 /* missing */ true, /* missingMailNotificationSent */ true));
         waitSomeTime();
-
         replicatedImage = replica.getEvent(event.getId()).getImages().iterator().next();
         assertTrue(replicatedImage.isMissing());
         assertTrue(replicatedImage.isMissingMailNotificationSent());
-
         master.apply(new UpdateEventImageHealth(event.getId(), image.getURL().toString(),
                 /* missing */ false, /* missingMailNotificationSent */ false));
         waitSomeTime();
-
         replicatedImage = replica.getEvent(event.getId()).getImages().iterator().next();
         assertFalse(replicatedImage.isMissing());
         assertFalse(replicatedImage.isMissingMailNotificationSent());
