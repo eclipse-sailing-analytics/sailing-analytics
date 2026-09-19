@@ -3,6 +3,15 @@ package com.sap.sailing.server.impl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.awt.image.BufferedImage;
 import java.io.BufferedReader;
@@ -17,23 +26,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Locale;
 import java.util.UUID;
-
-import com.sap.sailing.domain.base.Event;
-import com.sap.sse.security.SecurityService;
-import com.sap.sse.security.shared.OwnershipAnnotation;
-import com.sap.sse.security.shared.QualifiedObjectIdentifier;
-import com.sap.sse.security.shared.impl.Ownership;
-import com.sap.sse.security.shared.impl.User;
-import com.sap.sse.shared.media.ImageDescriptor;
-import static org.mockito.Mockito.any;
-import static org.mockito.Mockito.anyString;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import javax.imageio.ImageIO;
 
@@ -42,13 +36,21 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import com.sap.sailing.domain.base.Event;
 import com.sap.sailing.server.interfaces.RacingEventService;
 import com.sap.sailing.server.operationaltransformation.UpdateEventImageHealth;
 import com.sap.sse.common.Duration;
 import com.sap.sse.common.mail.MailException;
+import com.sap.sse.i18n.ResourceBundleStringMessages;
 import com.sap.sse.replication.ReplicationMasterDescriptor;
+import com.sap.sse.security.SecurityService;
+import com.sap.sse.security.shared.OwnershipAnnotation;
+import com.sap.sse.security.shared.QualifiedObjectIdentifier;
+import com.sap.sse.security.shared.impl.Ownership;
+import com.sap.sse.security.shared.impl.User;
+import com.sap.sse.shared.media.ImageDescriptor;
 
-public class ImageUrlHealthCheckerTest {
+public class MediaHealthCheckerTest {
     private static final String VALID_IMAGE_PATH = "/image";
     private static final String REDIRECT_PATH = "/redirect";
     private static final String HTTP_ERROR_PATH = "/not-found";
@@ -111,13 +113,9 @@ public class ImageUrlHealthCheckerTest {
         mockOwnership(securityService, event, "owner");
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
+        createActivatorWithOwnerNotificationEnabled(true).checkMedia(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
-
-        verify(securityService, times(1)).sendMail("owner", "Broken image for event Event",
-                "The image http://example.com/image.jpg configured for event \"Event\" is no longer available. Tags: Stage, Teaser. "
-                        + "Please update or replace the image.");
+        verify(securityService, times(1)).sendMail(eq("owner"), anyString(), anyString());
         verifyImageHealthUpdate(eventService, event, imageUrl, /* missing */ true, /* notificationSent */ true);
     }
 
@@ -129,10 +127,8 @@ public class ImageUrlHealthCheckerTest {
         mockOwnership(securityService, event, "owner");
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
+        createActivatorWithOwnerNotificationEnabled(true).checkMedia(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
-
         verify(securityService, never()).sendMail(anyString(), anyString(), anyString());
         verify(eventService, never()).apply(any(UpdateEventImageHealth.class));
     }
@@ -145,13 +141,9 @@ public class ImageUrlHealthCheckerTest {
         mockOwnership(securityService, event, "owner");
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
+        createActivatorWithOwnerNotificationEnabled(true).checkMedia(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
-
-        verify(securityService, times(1)).sendMail("owner", "Broken image for event Event",
-                "The image http://example.com/image.jpg configured for event \"Event\" is no longer available. Tags: Stage, Teaser. "
-                        + "Please update or replace the image.");
+        verify(securityService, times(1)).sendMail(eq("owner"), anyString(), anyString());
         verifyImageHealthUpdate(eventService, event, imageUrl, /* missing */ true, /* notificationSent */ true);
     }
 
@@ -162,10 +154,8 @@ public class ImageUrlHealthCheckerTest {
         final SecurityService securityService = mock(SecurityService.class);
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(true);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
+        createActivatorWithOwnerNotificationEnabled(true).checkMedia(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
-
         verify(securityService, never()).sendMail(anyString(), anyString(), anyString());
         verifyImageHealthUpdate(eventService, event, imageUrl, /* missing */ false, /* notificationSent */ false);
     }
@@ -177,10 +167,8 @@ public class ImageUrlHealthCheckerTest {
         final SecurityService securityService = mock(SecurityService.class);
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(true);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
+        createActivatorWithOwnerNotificationEnabled(true).checkMedia(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
-
         verify(eventService, never()).apply(any(UpdateEventImageHealth.class));
     }
 
@@ -194,17 +182,11 @@ public class ImageUrlHealthCheckerTest {
         mockOwnership(securityService, secondEvent, "second-owner");
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Arrays.asList(firstEvent, secondEvent),
+        createActivatorWithOwnerNotificationEnabled(true).checkMedia(Arrays.asList(firstEvent, secondEvent),
                 securityService, imageUrlHealthChecker, eventService);
-
         assertEquals(1, imageUrlHealthChecker.getNumberOfChecks());
-        verify(securityService, times(1)).sendMail("first-owner", "Broken image for event First Event",
-                "The image http://example.com/shared.jpg configured for event \"First Event\" is no longer available. Tags: Stage, Teaser. "
-                        + "Please update or replace the image.");
-        verify(securityService, times(1)).sendMail("second-owner", "Broken image for event Second Event",
-                "The image http://example.com/shared.jpg configured for event \"Second Event\" is no longer available. Tags: Stage, Teaser. "
-                        + "Please update or replace the image.");
+        verify(securityService, times(1)).sendMail(eq("first-owner"), anyString(), anyString());
+        verify(securityService, times(1)).sendMail(eq("second-owner"), anyString(), anyString());
         verify(eventService, times(2)).apply(any(UpdateEventImageHealth.class));
     }
 
@@ -217,10 +199,8 @@ public class ImageUrlHealthCheckerTest {
         doThrow(new MailException("test failure")).when(securityService).sendMail(anyString(), anyString(), anyString());
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        createActivatorWithOwnerNotificationEnabled(true).checkEventImages(Collections.singleton(event),
+        createActivatorWithOwnerNotificationEnabled(true).checkMedia(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
-
         verifyImageHealthUpdate(eventService, event, imageUrl, /* missing */ true, /* notificationSent */ false);
     }
 
@@ -232,43 +212,37 @@ public class ImageUrlHealthCheckerTest {
         mockOwnership(securityService, event, "owner");
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        createActivatorWithOwnerNotificationEnabled(false).checkEventImages(Collections.singleton(event),
+        createActivatorWithOwnerNotificationEnabled(false).checkMedia(Collections.singleton(event),
                 securityService, imageUrlHealthChecker, eventService);
-
         verify(securityService, never()).sendMail(anyString(), anyString(), anyString());
         verifyImageHealthUpdate(eventService, event, imageUrl, /* missing */ true, /* notificationSent */ false);
     }
-    
+
     @Test
-    public void testEventImagesAreNotCheckedWhenRacingEventServiceIsReplica() throws Exception {
+    public void testEventMediaAreNotCheckedWhenRacingEventServiceIsReplica() throws Exception {
         final URL imageUrl = new URL("http://example.com/image.jpg");
         final Event event = mockEvent("Event", imageUrl, /* missing */ false, /* notificationSent */ false);
         final SecurityService securityService = mock(SecurityService.class);
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
         when(eventService.getMasterDescriptor()).thenReturn(mock(ReplicationMasterDescriptor.class));
-
-        new Activator().checkEventImages(Collections.singleton(event), securityService, imageUrlHealthChecker,
-                eventService);
-
+        new Activator(ResourceBundleStringMessages.NULL).checkMedia(Collections.singleton(event),
+                securityService, imageUrlHealthChecker, eventService);
         assertEquals(0, imageUrlHealthChecker.getNumberOfChecks());
         verify(securityService, never()).sendMail(anyString(), anyString(), anyString());
         verify(eventService, never()).apply(any(UpdateEventImageHealth.class));
     }
 
     @Test
-    public void testEventImagesAreCheckedWhenOnlySecurityServiceIsReplica() throws Exception {
+    public void testEventMediaAreCheckedWhenOnlySecurityServiceIsReplica() throws Exception {
         final URL imageUrl = new URL("http://example.com/image.jpg");
         final Event event = mockEvent("Event", imageUrl, /* missing */ false, /* notificationSent */ false);
         final SecurityService securityService = mock(SecurityService.class);
         when(securityService.getMasterDescriptor()).thenReturn(mock(ReplicationMasterDescriptor.class));
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(true);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        new Activator().checkEventImages(Collections.singleton(event), securityService, imageUrlHealthChecker,
-                eventService);
-
+        new Activator(ResourceBundleStringMessages.NULL).checkMedia(Collections.singleton(event),
+                securityService, imageUrlHealthChecker, eventService);
         assertEquals(1, imageUrlHealthChecker.getNumberOfChecks());
         verify(eventService, never()).apply(any(UpdateEventImageHealth.class));
     }
@@ -280,10 +254,8 @@ public class ImageUrlHealthCheckerTest {
         final SecurityService securityService = mock(SecurityService.class);
         final TestImageUrlHealthChecker imageUrlHealthChecker = new TestImageUrlHealthChecker(false);
         final RacingEventService eventService = mock(RacingEventService.class);
-
-        new Activator().checkEventImages(Collections.singleton(event), securityService, imageUrlHealthChecker,
-                eventService);
-
+        new Activator(ResourceBundleStringMessages.NULL).checkMedia(Collections.singleton(event),
+                securityService, imageUrlHealthChecker, eventService);
         verify(securityService, never()).sendMail(anyString(), anyString(), anyString());
         verifyImageHealthUpdate(eventService, event, imageUrl, /* missing */ true, /* notificationSent */ false);
     }
@@ -295,6 +267,7 @@ public class ImageUrlHealthCheckerTest {
         when(event.getIdentifier()).thenReturn(mock(QualifiedObjectIdentifier.class));
         when(event.getName()).thenReturn(name);
         when(event.getImages()).thenReturn(Collections.singleton(image));
+        when(event.getVideos()).thenReturn(Collections.emptyList());
         when(image.getURL()).thenReturn(imageUrl);
         when(image.getTags()).thenReturn(Arrays.asList("Stage", "Teaser"));
         when(image.isMissing()).thenReturn(missing);
@@ -320,8 +293,9 @@ public class ImageUrlHealthCheckerTest {
         when(ownership.getAnnotation()).thenReturn(ownershipValue);
         when(ownershipValue.getUserOwner()).thenReturn(owner);
         when(owner.getName()).thenReturn(username);
+        when(owner.getLocaleOrDefault()).thenReturn(Locale.ROOT);
     }
-    
+
     private URL getUrl(String path) throws Exception {
         return new URL("http://127.0.0.1:" + server.getPort() + path);
     }
@@ -358,21 +332,25 @@ public class ImageUrlHealthCheckerTest {
 
         private TestHttpServer() throws IOException {
             serverSocket = new ServerSocket(0);
-            serverThread = new Thread(this, ImageUrlHealthCheckerTest.class.getSimpleName() + " HTTP server");
+            serverThread = new Thread(this, MediaHealthCheckerTest.class.getSimpleName() + " HTTP server");
             serverThread.setDaemon(true);
         }
+
         private void start() {
             serverThread.start();
         }
+
         private int getPort() {
             return serverSocket.getLocalPort();
         }
+
         private void stop() throws InterruptedException, IOException {
             if (!serverSocket.isClosed()) {
                 serverSocket.close();
             }
             serverThread.join();
         }
+
         @Override
         public void run() {
             while (!serverSocket.isClosed()) {
@@ -438,12 +416,13 @@ public class ImageUrlHealthCheckerTest {
             outputStream.flush();
         }
     }
+
     private Activator createActivatorWithOwnerNotificationEnabled(boolean enabled) {
-        final String propertyName = Activator.EVENT_IMAGE_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME;
+        final String propertyName = Activator.EVENT_MEDIA_OWNER_NOTIFICATION_ENABLED_PROPERTY_NAME;
         final String previousValue = System.getProperty(propertyName);
         System.setProperty(propertyName, Boolean.toString(enabled));
         try {
-            return new Activator();
+            return new Activator(ResourceBundleStringMessages.NULL);
         } finally {
             if (previousValue == null) {
                 System.clearProperty(propertyName);

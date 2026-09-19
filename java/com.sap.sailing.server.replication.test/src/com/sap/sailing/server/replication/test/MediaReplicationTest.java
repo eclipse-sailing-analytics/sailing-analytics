@@ -57,6 +57,7 @@ import com.sap.sailing.server.interfaces.RacingEventService;
 import com.sap.sailing.server.masterdata.MasterDataImporter;
 import com.sap.sailing.server.operationaltransformation.CreateEvent;
 import com.sap.sailing.server.operationaltransformation.UpdateEventImageHealth;
+import com.sap.sailing.server.operationaltransformation.UpdateEventVideoHealth;
 import com.sap.sailing.shared.server.gateway.jaxrs.AbstractSailingServerResource;
 import com.sap.sse.common.Duration;
 import com.sap.sse.common.TimePoint;
@@ -78,7 +79,9 @@ import com.sap.sse.security.shared.impl.UserGroupImpl;
 import com.sap.sse.shared.util.Wait;
 
 import com.sap.sse.shared.media.ImageDescriptor;
+import com.sap.sse.shared.media.VideoDescriptor;
 import com.sap.sse.shared.media.impl.ImageDescriptorImpl;
+import com.sap.sse.shared.media.impl.VideoDescriptorImpl;
 
 public class MediaReplicationTest extends AbstractServerReplicationTest {
     @SuppressWarnings("unchecked")
@@ -376,6 +379,32 @@ public class MediaReplicationTest extends AbstractServerReplicationTest {
         replicatedImage = replica.getEvent(event.getId()).getImages().iterator().next();
         assertFalse(replicatedImage.isMissing());
         assertFalse(replicatedImage.isMissingMailNotificationSent());
+    }
+
+    @Test
+    public void testEventVideoHealthStateReplication() throws Exception {
+        final VideoDescriptor video = new VideoDescriptorImpl(new URL("http://example.com/event.mp4"),
+                MimeType.mp4, TimePoint.now());
+        final Event event = master.apply(new CreateEvent("Event", "Description", TimePoint.now(),
+                TimePoint.now().plus(Duration.ONE_DAY), "Venue", /* isPublic */ true, UUID.randomUUID(),
+                /* officialWebsiteURL */ null, /* baseURL */ null, Collections.emptyMap(),
+                Collections.emptyList(), Collections.singleton(video), Collections.emptyList()));
+        waitSomeTime();
+        VideoDescriptor replicatedVideo = replica.getEvent(event.getId()).getVideos().iterator().next();
+        assertFalse(replicatedVideo.isMissing());
+        assertFalse(replicatedVideo.isMissingMailNotificationSent());
+        master.apply(new UpdateEventVideoHealth(event.getId(), video.getURL().toString(),
+                /* missing */ true, /* missingMailNotificationSent */ true));
+        waitSomeTime();
+        replicatedVideo = replica.getEvent(event.getId()).getVideos().iterator().next();
+        assertTrue(replicatedVideo.isMissing());
+        assertTrue(replicatedVideo.isMissingMailNotificationSent());
+        master.apply(new UpdateEventVideoHealth(event.getId(), video.getURL().toString(),
+                /* missing */ false, /* missingMailNotificationSent */ false));
+        waitSomeTime();
+        replicatedVideo = replica.getEvent(event.getId()).getVideos().iterator().next();
+        assertFalse(replicatedVideo.isMissing());
+        assertFalse(replicatedVideo.isMissingMailNotificationSent());
     }
 
     private void compareTracks(MediaTrack trackOnSource, Iterable<MediaTrack> targetTracksMaster) {

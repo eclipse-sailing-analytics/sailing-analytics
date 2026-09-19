@@ -4106,6 +4106,28 @@ Replicator {
     }
 
     @Override
+    public void updateEventVideoHealth(UUID id, String videoUrl, boolean missing, boolean missingMailNotificationSent) {
+        final Event event = eventsById.get(id);
+        if (event == null) {
+            throw new IllegalArgumentException("Sailing event with ID " + id + " does not exist.");
+        }
+        boolean videoFound = false;
+        for (final VideoDescriptor video : event.getVideos()) {
+            if (video.getURL() != null && videoUrl.equals(video.getURL().toString())) {
+                video.setMissing(missing);
+                video.setMissingMailNotificationSent(missingMailNotificationSent);
+                videoFound = true;
+            }
+        }
+        if (videoFound) {
+            mongoObjectFactory.storeEvent(event);
+        } else {
+            logger.warning("Could not update video health for URL " + videoUrl + " because it is not attached to event "
+                    + event.getName());
+        }
+    }
+
+    @Override
     public void renameEvent(UUID id, String newName) {
         final Event toRename = eventsById.get(id);
         if (toRename == null) {
