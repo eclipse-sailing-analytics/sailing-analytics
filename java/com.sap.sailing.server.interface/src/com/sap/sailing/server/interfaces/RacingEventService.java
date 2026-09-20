@@ -6,6 +6,7 @@ import java.net.MalformedURLException;
 import java.net.SocketException;
 import java.net.URI;
 import java.net.URL;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.ConcurrentModificationException;
 import java.util.List;
@@ -1122,6 +1123,16 @@ public interface RacingEventService extends TrackedRegattaRegistry, RegattaFetch
             TimePoint timePoint, LeaderboardGroup leaderboardGroup, String leaderboardName,
             WindLegTypeAndLegBearingAndORCPerformanceCurveCache cache) throws NoWindException,
             NotEnoughDataHasBeenAddedException, MaxIterationsExceededException, FunctionEvaluationException;
+
+    /**
+     * Creates a live wind subscription for the given wind sources, choosing an appropriate feeder from
+     * the registered {@link WindLiveSubscriptionFeederFactory} services, registers it, and returns its ID.
+     * Throws {@link IllegalArgumentException} if no factory can handle any of the requested wind sources.
+     *
+     * @param correctByDeclination whether to correct raw wind bearings for magnetic declination
+     */
+    String startWindLiveSubscription(String ownerName, Collection<com.sap.sailing.domain.common.WindSource> windSources,
+            boolean correctByDeclination) throws Exception;
 
     /**
      * Registers a new wind live subscription with the given feeder and returns its ID.

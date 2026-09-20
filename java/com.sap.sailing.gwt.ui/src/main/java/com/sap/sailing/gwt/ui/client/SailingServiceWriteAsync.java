@@ -641,7 +641,7 @@ public interface SailingServiceWriteAsync extends FileStorageManagementGwtServic
     
     void getIgtimiDeviceLogs(String serialNumber, Duration duration, AsyncCallback<ArrayList<Pair<TimePoint, String>>> asyncCallback);
     
-    void startWindLiveSubscription(Collection<WindSource> windSources, AsyncCallback<String> callback);
+    void startWindLiveSubscription(Collection<WindSource> windSources, boolean correctByDeclination, AsyncCallback<String> callback);
 
     void getWindLiveUpdates(String subscriptionId, AsyncCallback<WindInfoForRaceDTO> callback);
 

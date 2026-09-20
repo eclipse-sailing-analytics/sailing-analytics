@@ -303,8 +303,6 @@ import com.sap.sailing.gwt.ui.shared.courseCreation.MarkRoleDTO;
 import com.sap.sailing.gwt.ui.shared.courseCreation.MarkTemplateDTO;
 import com.sap.sailing.server.hierarchy.SailingHierarchyOwnershipUpdater;
 import com.sap.sailing.server.interfaces.RacingEventService;
-import com.sap.sailing.server.interfaces.WindLiveSubscription;
-import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeeder;
 import com.sap.sailing.server.operationaltransformation.AbstractLeaderboardGroupOperation;
 import com.sap.sailing.server.operationaltransformation.AddColumnToLeaderboard;
 import com.sap.sailing.server.operationaltransformation.AddColumnToSeries;
@@ -424,6 +422,15 @@ public class SailingServiceWriteImpl extends SailingServiceImpl implements Saili
     private static final long serialVersionUID = -992637440342246674L;
 
     public SailingServiceWriteImpl() {
+        final org.osgi.framework.BundleContext context = Activator.getDefault();
+        if (context != null) {
+            context.registerService(com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory.class,
+                    new IgtimiWindLiveSubscriptionFeederFactory(
+                            () -> createIgtimiConnection(java.util.Optional.empty()),
+                            serialNumber -> getIgtimiDevice(serialNumber),
+                            device -> getSecurityService().checkCurrentUserReadPermission(device)),
+                    /* properties */ null);
+        }
     }
 
     // WRITE
@@ -2144,21 +2151,13 @@ public class SailingServiceWriteImpl extends SailingServiceImpl implements Saili
     }
     
     @Override
-    public String startWindLiveSubscription(final Collection<WindSource> windSources) throws Exception {
+    public String startWindLiveSubscription(final Collection<WindSource> windSources,
+            final boolean correctByDeclination) throws Exception {
         if (windSources == null || windSources.isEmpty()) {
             throw new IllegalArgumentException("At least one wind source must be selected");
         }
-        final WindLiveSubscriptionFeederFactory feederFactory = IgtimiWindLiveSubscriptionFeederFactory
-                .forIgtimiConnection(() -> createIgtimiConnection(Optional.empty()), serialNumber -> getIgtimiDevice(serialNumber),
-                        device -> getSecurityService().checkCurrentUserReadPermission(device));
         final String ownerName = getCurrentUserNameForWindLiveSubscription();
-        final WindLiveSubscription subscription = new WindLiveSubscription(ownerName);
-        final WindLiveSubscriptionFeeder feeder = feederFactory.createFeeder(subscription, new HashSet<>(windSources));
-        if (feeder == null) {
-            throw new IllegalArgumentException("Unsupported live wind sources " + windSources);
-        }
-        subscription.addFeeder(feeder);
-        return getService().registerWindLiveSubscription(ownerName, subscription);
+        return getService().startWindLiveSubscription(ownerName, windSources, correctByDeclination);
     }
 
     @Override

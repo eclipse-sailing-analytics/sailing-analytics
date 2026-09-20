@@ -85,7 +85,7 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
         if (!windSources.isEmpty()) {
             Scheduler.get().scheduleDeferred(windChart::onResize);
             sailingServiceWrite.startWindLiveSubscription(
-                    windSources,
+                    windSources, /* correctByDeclination */ true,
                     new AsyncCallback<String>() {
                         @Override
                         public void onSuccess(final String subscriptionId) {

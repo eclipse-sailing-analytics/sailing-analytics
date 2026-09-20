@@ -13,30 +13,36 @@ import com.sap.sailing.domain.igtimiadapter.Device;
 import com.sap.sailing.domain.igtimiadapter.IgtimiConnection;
 import com.sap.sailing.server.interfaces.WindLiveSubscription;
 import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeeder;
+import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory;
 
 /**
  * Creates {@link IgtimiWindLiveSubscriptionFeeder} instances for wind sources of type
- * {@link WindSourceType#EXPEDITION}.
+ * {@link WindSourceType#EXPEDITION}, connecting to the Igtimi live data service.
+ * <p>
+ * An instance of this factory is registered as an OSGi service of type
+ * {@link WindLiveSubscriptionFeederFactory} from {@link SailingServiceImpl}'s constructor,
+ * giving {@code RacingEventServiceImpl} access to it through a {@code ServiceTracker}.
+ * <p>
+ * The {@code correctByDeclination} flag is passed per-call via
+ * {@link #createFeeder(WindLiveSubscription, Collection, boolean)}, allowing each subscription
+ * request to opt in or out of declination correction independently.
  */
-class IgtimiWindLiveSubscriptionFeederFactory implements WindLiveSubscriptionFeederFactory {
+public class IgtimiWindLiveSubscriptionFeederFactory implements WindLiveSubscriptionFeederFactory {
     private final Supplier<IgtimiConnection> connectionSupplier;
     private final Function<String, Device> deviceLookup;
     private final Consumer<Device> readPermissionChecker;
-    private final boolean correctByDeclination;
 
-    IgtimiWindLiveSubscriptionFeederFactory(final Supplier<IgtimiConnection> connectionSupplier,
+    public IgtimiWindLiveSubscriptionFeederFactory(final Supplier<IgtimiConnection> connectionSupplier,
             final Function<String, Device> deviceLookup,
-            final Consumer<Device> readPermissionChecker,
-            final boolean correctByDeclination) {
+            final Consumer<Device> readPermissionChecker) {
         this.connectionSupplier = connectionSupplier;
         this.deviceLookup = deviceLookup;
         this.readPermissionChecker = readPermissionChecker;
-        this.correctByDeclination = correctByDeclination;
     }
 
     @Override
     public WindLiveSubscriptionFeeder createFeeder(final WindLiveSubscription subscription,
-            final Collection<WindSource> windSources) throws Exception {
+            final Collection<WindSource> windSources, final boolean correctByDeclination) throws Exception {
         final Map<String, WindSource> igtimiWindSourcesBySerialNumber = new HashMap<>();
         boolean allSupported = true;
         for (final WindSource windSource : windSources) {
@@ -65,13 +71,5 @@ class IgtimiWindLiveSubscriptionFeederFactory implements WindLiveSubscriptionFee
             result = null;
         }
         return result;
-    }
-
-    static IgtimiWindLiveSubscriptionFeederFactory forIgtimiConnection(
-            final Supplier<IgtimiConnection> connectionSupplier,
-            final Function<String, Device> deviceLookup,
-            final Consumer<Device> readPermissionChecker) {
-        return new IgtimiWindLiveSubscriptionFeederFactory(connectionSupplier, deviceLookup,
-                readPermissionChecker, /* correctByDeclination */ true);
     }
 }

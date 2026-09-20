@@ -284,6 +284,7 @@ import com.sap.sailing.server.interfaces.RacingEventServiceOperation;
 import com.sap.sailing.server.interfaces.SimulationService;
 import com.sap.sailing.server.interfaces.TaggingService;
 import com.sap.sailing.server.interfaces.WindLiveSubscription;
+import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeeder;
 import com.sap.sailing.server.masterdata.MasterDataImporter;
 import com.sap.sailing.server.notification.EmptySailingNotificationService;
 import com.sap.sailing.server.notification.SailingNotificationService;
@@ -620,6 +621,9 @@ Replicator {
 
     private final ServiceTracker<SailingServerFactory, SailingServerFactory> sailingServerFactoryTracker;
 
+    private final ServiceTracker<com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory,
+            com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory> windLiveSubscriptionFeederFactoryTracker;
+
     private transient final ConcurrentHashMap<Leaderboard, ScoreCorrectionListener> scoreCorrectionListenersByLeaderboard;
 
     private transient final ConcurrentHashMap<RaceDefinition, RaceTrackingConnectivityParameters> connectivityParametersByRace;
@@ -690,7 +694,8 @@ Replicator {
                 restoreTrackedRaces, /* securityServiceTracker */ null, /* sharedSailingDataTracker */ null,
                 /* replicationServiceTracker */ null, /* scoreCorrectionProviderServiceTracker */ null,
                 /* competitorProviderServiceTracker */ null, /* resultUrlRegistryServiceTracker */ null,
-                /* brandingConfigurationServiceTracker */ null, /* sailingServerFactoryTracker */ null);
+                /* brandingConfigurationServiceTracker */ null, /* sailingServerFactoryTracker */ null,
+                /* windLiveSubscriptionFeederFactoryTracker */ null);
     }
 
     /**
@@ -723,7 +728,9 @@ Replicator {
             ServiceTracker<CompetitorProvider, CompetitorProvider> competitorProviderServiceTracker,
             ServiceTracker<ResultUrlRegistry, ResultUrlRegistry> resultUrlRegistryServiceTracker,
             ServiceTracker<BrandingConfigurationService, BrandingConfigurationService> brandingConfigurationServiceTracker,
-            ServiceTracker<SailingServerFactory, SailingServerFactory> sailingServerFactoryTracker) {
+            ServiceTracker<SailingServerFactory, SailingServerFactory> sailingServerFactoryTracker,
+            ServiceTracker<com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory,
+                    com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory> windLiveSubscriptionFeederFactoryTracker) {
         this((final RaceLogAndTrackedRaceResolver raceLogResolver) -> {
             return new ConstructorParameters() {
                 private final MongoObjectFactory mongoObjectFactory = PersistenceFactory.INSTANCE
@@ -756,7 +763,8 @@ Replicator {
                 trackedRegattaListener, sailingNotificationService, trackedRaceStatisticsCache, restoreTrackedRaces,
                 securityServiceTracker, sharedSailingDataTracker, /* replicationServiceTracker */ null,
                 scoreCorrectionProviderServiceTracker,
-                competitorProviderServiceTracker, resultUrlRegistryServiceTracker, sailingServerFactoryTracker);
+                competitorProviderServiceTracker, resultUrlRegistryServiceTracker, sailingServerFactoryTracker,
+                windLiveSubscriptionFeederFactoryTracker);
     }
 
     private RacingEventServiceImpl(final boolean clearPersistentCompetitorStore, WindStore windStore,
@@ -826,7 +834,8 @@ Replicator {
                 /* trackedRaceStatisticsCache */ null, restoreTrackedRaces, /* security service tracker */ null,
                 /* sharedSailingDataTracker */ null, /* replicationServiceTracker */ null,
                 /* scoreCorrectionProviderServiceTracker */ null, /* competitorProviderServiceTracker */ null,
-                /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null);
+                /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null,
+                /* windLiveSubscriptionFeederFactoryTracker */ null);
     }
 
     /**
@@ -868,7 +877,9 @@ Replicator {
             ServiceTracker<ScoreCorrectionProvider, ScoreCorrectionProvider> scoreCorrectionProviderServiceTracker,
             ServiceTracker<CompetitorProvider, CompetitorProvider> competitorProviderServiceTracker,
             ServiceTracker<ResultUrlRegistry, ResultUrlRegistry> resultUrlRegistryServiceTracker,
-            ServiceTracker<SailingServerFactory, SailingServerFactory> sailingServerFactoryTracker) {
+            ServiceTracker<SailingServerFactory, SailingServerFactory> sailingServerFactoryTracker,
+            ServiceTracker<com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory,
+                    com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory> windLiveSubscriptionFeederFactoryTracker) {
         logger.info("Created " + this);
         this.eventResolverListeners = Collections.newSetFromMap(new ConcurrentHashMap<>());
         this.securityServiceTracker = securityServiceTracker;
@@ -880,6 +891,7 @@ Replicator {
         this.competitorProviderServiceTracker = competitorProviderServiceTracker;
         this.scoreCorrectionListenersByLeaderboard = new ConcurrentHashMap<>();
         this.sailingServerFactoryTracker = sailingServerFactoryTracker;
+        this.windLiveSubscriptionFeederFactoryTracker = windLiveSubscriptionFeederFactoryTracker;
         this.connectivityParametersByRace = new ConcurrentHashMap<>();
         this.notificationService = sailingNotificationService;
         final ConstructorParameters constructorParameters = constructorParametersProvider.apply(this);
@@ -6276,6 +6288,31 @@ Replicator {
             result = null;
         }
         return result;
+    }
+
+    @Override
+    public String startWindLiveSubscription(final String ownerName,
+            final Collection<com.sap.sailing.domain.common.WindSource> windSources,
+            final boolean correctByDeclination) throws Exception {
+        final WindLiveSubscription subscription = new WindLiveSubscription(ownerName);
+        boolean anyFeederCreated = false;
+        if (windLiveSubscriptionFeederFactoryTracker != null) {
+            final com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory[] factories =
+                    windLiveSubscriptionFeederFactoryTracker.getServices(
+                            new com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory[0]);
+            for (final com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory factory : factories) {
+                final WindLiveSubscriptionFeeder feeder = factory.createFeeder(subscription,
+                        new java.util.HashSet<>(windSources), correctByDeclination);
+                if (feeder != null) {
+                    subscription.addFeeder(feeder);
+                    anyFeederCreated = true;
+                }
+            }
+        }
+        if (!anyFeederCreated) {
+            throw new IllegalArgumentException("Unsupported live wind sources " + windSources);
+        }
+        return registerWindLiveSubscription(ownerName, subscription);
     }
 
     @Override

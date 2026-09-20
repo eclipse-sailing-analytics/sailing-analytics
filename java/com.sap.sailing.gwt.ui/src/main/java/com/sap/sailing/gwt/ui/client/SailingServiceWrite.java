@@ -278,9 +278,11 @@ public interface SailingServiceWrite extends FileStorageManagementGwtService, Sa
      * subscription on a replica, to which the call may get routed if the method were provided on
      * {@link SailingService}.
      *
+     * @param correctByDeclination
+     *            whether to correct raw wind bearings for magnetic declination before buffering
      * @return an opaque subscription ID used to obtain updates and stop the subscription
      */
-    String startWindLiveSubscription(Collection<WindSource> windSources) throws Exception;
+    String startWindLiveSubscription(Collection<WindSource> windSources, boolean correctByDeclination) throws Exception;
 
     /**
      * Returns and removes the wind fixes currently buffered for the subscription identified by
