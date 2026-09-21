@@ -253,13 +253,13 @@ public class Activator implements BundleActivator {
             final Map<String, Boolean> availabilityByUrl = new HashMap<>();
             for (final Event event : events) {
                 for (final ImageDescriptor image : event.getImages()) {
-                    checkMediaDescriptor(event, image, "image", availabilityByUrl,
+                    checkMediaDescriptor(event, image, "Image", availabilityByUrl,
                             url -> imageUrlHealthChecker.isImageAvailable(url),
                             (id, url, missing, sent) -> new UpdateEventImageHealth(id, url, missing, sent),
                             securityService, eventService);
                 }
                 for (final VideoDescriptor video : event.getVideos()) {
-                    checkMediaDescriptor(event, video, "video", availabilityByUrl,
+                    checkMediaDescriptor(event, video, "Video", availabilityByUrl,
                             url -> imageUrlHealthChecker.isImageAvailable(url),
                             (id, url, missing, sent) -> new UpdateEventVideoHealth(id, url, missing, sent),
                             securityService, eventService);
@@ -337,8 +337,8 @@ public class Activator implements BundleActivator {
             result = false;
         } else {
             final Locale locale = owner.getLocaleOrDefault();
-            final String subject = messages.get(locale, "brokenMediaSubject", mediaType, event.getName());
-            final String body = messages.get(locale, "brokenMediaBody", mediaType, event.getName(), mediaUrl, mediaTags);
+            final String subject = messages.get(locale, "broken"+mediaType+"MediaSubject", event.getName());
+            final String body = messages.get(locale, "broken"+mediaType+"MediaBody", event.getName(), mediaUrl, mediaTags);
             if (!eventMediaOwnerNotificationEnabled) {
                 logger.warning("Would notify owner " + owner.getName() + " about broken " + mediaType + " " + mediaUrl
                         + " with tags " + mediaTags + " for event " + event.getName() + "; enable with -D"
