@@ -81,7 +81,8 @@ public abstract class AbstractServerReplicationTest extends com.sap.sse.replicat
                     /* trackedRaceStatisticsCache */ null, /* restoreTrackedRaces */ false,
                     /* security service tracker */ null, /* sharedSailingData */ null, /* replicationServiceTracker */ null,
                     /* scoreCorrectionProviderServiceTracker */ null, /* competitorProviderServiceTracker */ null,
-                    /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null);
+                    /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null,
+                    /* windLiveSubscriptionFeederFactoryTracker */ null);
         }
 
         @Override
@@ -103,7 +104,8 @@ public abstract class AbstractServerReplicationTest extends com.sap.sse.replicat
                     /* sailingNotificationService */ null, /* trackedRaceStatisticsCache */ null,
                     /* restoreTrackedRaces */ false, /* security service tracker */ null, /* sharedSailingData */ null, /* replicationServiceTracker */ null,
                     /* scoreCorrectionProviderServiceTracker */ null, /* competitorProviderServiceTracker */ null,
-                    /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null);
+                    /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null,
+                    /* windLiveSubscriptionFeederFactoryTracker */ null);
         }
     }
 }

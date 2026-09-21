@@ -124,7 +124,8 @@ public class AutomaticRetrackUponCompetitorSetChangeTest {
                     }
         }, /* sharedSailingData */ null, /* replicationServiceTracker */ null,
                 /* scoreCorrectionProviderServiceTracker */ null, /* competitorProviderServiceTracker */ null,
-                /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null);
+                /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null,
+                /* windLiveSubscriptionFeederFactoryTracker */ null);
         final Regatta regatta = service.createRegatta("Test regatta", "J/70",
                 /* canBoatsOfCompetitorsChangePerRace==true because it's a league race we're using for this test */ true,
                 CompetitorRegistrationType.CLOSED, /* registrationLinkSecret */ null,

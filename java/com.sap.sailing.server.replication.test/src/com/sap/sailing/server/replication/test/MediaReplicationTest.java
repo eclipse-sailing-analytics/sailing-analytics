@@ -107,7 +107,8 @@ public class MediaReplicationTest extends AbstractServerReplicationTest {
                         /* restoreTrackedRaces */ false, /* security service tracker */ securityServiceTrackerMock,
                         /* sharedSailingData */ null, /* replicationServiceTracker */ null,
                         /* scoreCorrectionProviderServiceTracker */ null, /* competitorProviderServiceTracker */ null,
-                        /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null);
+                        /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null,
+                        /* windLiveSubscriptionFeederFactoryTracker */ null);
                 result.getMasterDataClassLoaders().addClassLoader(this.getClass().getClassLoader());
                 return result;
             }
