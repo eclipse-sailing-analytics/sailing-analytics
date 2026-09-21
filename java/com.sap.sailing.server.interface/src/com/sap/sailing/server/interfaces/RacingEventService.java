@@ -494,13 +494,13 @@ public interface RacingEventService extends TrackedRegattaRegistry, RegattaFetch
      * Updates the persisted health state for all images of the event whose URL matches <code>imageUrl</code>. Does not
      * replicate automatically; see {@link com.sap.sailing.server.operationaltransformation.UpdateEventImageHealth}.
      */
-    void updateEventImageHealth(UUID id, String imageUrl, boolean missing, boolean missingMailNotificationSent);
+    void updateEventImageHealth(UUID eventId, String imageUrl, boolean missing, boolean missingMailNotificationSent);
 
     /**
      * Updates the persisted health state for all videos of the event whose URL matches <code>videoUrl</code>. Does not
      * replicate automatically; see {@link com.sap.sailing.server.operationaltransformation.UpdateEventVideoHealth}.
      */
-    void updateEventVideoHealth(UUID id, String videoUrl, boolean missing, boolean missingMailNotificationSent);
+    void updateEventVideoHealth(UUID eventId, String videoUrl, boolean missing, boolean missingMailNotificationSent);
     
     /**
      * Renames a sailing event. If a sailing event by the name <code>oldName</code> does not exist in {@link #getEvents()},

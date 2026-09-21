@@ -4084,10 +4084,10 @@ Replicator {
     }
     
     @Override
-    public void updateEventImageHealth(UUID id, String imageUrl, boolean missing, boolean missingMailNotificationSent) {
-        final Event event = eventsById.get(id);
+    public void updateEventImageHealth(UUID eventId, String imageUrl, boolean missing, boolean missingMailNotificationSent) {
+        final Event event = eventsById.get(eventId);
         if (event == null) {
-            throw new IllegalArgumentException("Sailing event with ID " + id + " does not exist.");
+            throw new IllegalArgumentException("Sailing event with ID " + eventId + " does not exist.");
         }
         boolean imageFound = false;
         for (final ImageDescriptor image : event.getImages()) {
@@ -4106,10 +4106,10 @@ Replicator {
     }
 
     @Override
-    public void updateEventVideoHealth(UUID id, String videoUrl, boolean missing, boolean missingMailNotificationSent) {
-        final Event event = eventsById.get(id);
+    public void updateEventVideoHealth(UUID eventId, String videoUrl, boolean missing, boolean missingMailNotificationSent) {
+        final Event event = eventsById.get(eventId);
         if (event == null) {
-            throw new IllegalArgumentException("Sailing event with ID " + id + " does not exist.");
+            throw new IllegalArgumentException("Sailing event with ID " + eventId + " does not exist.");
         }
         boolean videoFound = false;
         for (final VideoDescriptor video : event.getVideos()) {
