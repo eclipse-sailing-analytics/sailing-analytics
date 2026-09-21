@@ -186,7 +186,14 @@ public interface RacingEventService extends TrackedRegattaRegistry, RegattaFetch
     
     /**
      * Traverses through the event's {@link Event#getLeaderboardGroups() leaderboard groups} and from there on to the
-     * {@link Leaderboard}s and finds }
+     * {@link Leaderboard}s and finds all {@link TrackedRace}s whose tracking interval contains {@code at}.
+     * <p>
+     * A tracked race is only returned when {@code at} is at or after its {@link TrackedRace#getStartOfTracking() start
+     * of tracking} and, if an {@link TrackedRace#getEndOfTracking() end of tracking} is defined, at or before that end.
+     * Because the start of tracking is used as the lower interval bound, every {@link TrackedRace} returned is
+     * guaranteed to have a non-{@code null} {@link TrackedRace#getStartOfTracking() start of tracking}; callers may rely
+     * on this and dereference it without a null check. The {@link TrackedRace#getEndOfTracking() end of tracking} may
+     * still be {@code null} for races whose tracking has not ended yet.
      * 
      * @param at
      *            the time point that must be between a {@link TrackedRace}'s {@link TrackedRace#getStartOfTracking()
@@ -766,6 +773,13 @@ public interface RacingEventService extends TrackedRegattaRegistry, RegattaFetch
             RemoteSailingServerReference ref, boolean forceUpdate);
     
     Util.Pair<Iterable<EventBase>, Exception> getCompleteRemoteServerReference(RemoteSailingServerReference ref);
+
+    /**
+     * Like {@link #getRemoteEvents(String)}, but uses the provided {@code bearerTokenOrNull} instead of the current
+     * user's bearer token if non-null. Useful for cross-security-realm access, e.g. fetching events from a production
+     * server while running locally.
+     */
+    Iterable<EventBase> getRemoteEvents(String baseUrl, String bearerTokenOrNull) throws Exception;
 
     /**
      * Searches the content of this server, not that of any remote servers referenced by any {@link RemoteSailingServerReference}s.

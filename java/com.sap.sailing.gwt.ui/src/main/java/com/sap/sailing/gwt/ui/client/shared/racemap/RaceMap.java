@@ -419,7 +419,7 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
     /**
      * RPC calls may receive responses out of order if there are multiple calls in-flight at the same time. If the time
      * slider is moved quickly it generates many requests for boat positions quickly after each other. Sometimes,
-     * responses for requests send later may return before the responses to all earlier requests have been received and
+     * responses for requests sent later may return before the responses to all earlier requests have been received and
      * processed. This counter is used to number the requests. When processing of a response for a later request has
      * already begun, responses to earlier requests will be ignored.
      */
@@ -1076,6 +1076,8 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
 
             @Override
             public void onSuccess(String googleMapsLoaderAuthenticationParams) {
+                GoogleMapsLoader.setAuthFailureListener(
+                        () -> errorReporter.reportError(stringMessages.errorGoogleMapsAuthenticationFailed()));
                 GoogleMapsLoader.load(onLoad, googleMapsLoaderAuthenticationParams);
             }
         });
@@ -2053,7 +2055,7 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
                         Math.cos(lat1) * Math.sin(distanceRad) * Math.cos(bearingRad));
         double lon2 = lon1 + Math.atan2(Math.sin(bearingRad)*Math.sin(distanceRad)*Math.cos(lat1), 
                        Math.cos(distanceRad)-Math.sin(lat1)*Math.sin(lat2));
-        lon2 = (lon2+3*Math.PI) % (2*Math.PI) - Math.PI;  // normalize to -180..+180�
+        lon2 = (lon2+3*Math.PI) % (2*Math.PI) - Math.PI;  // normalize to -180..+180°
         // position is already in LatLng space, so no mapping through coordinateSystem is required here
         return LatLng.newInstance(lat2 / Math.PI * 180., lon2  / Math.PI * 180.);
     }
@@ -2265,6 +2267,10 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
 
     private final StringBuilder startLineAdvantageText = new StringBuilder();
     private final StringBuilder finishLineAdvantageText = new StringBuilder();
+    /**
+     * tooltip textx for the course middle lines, using the same key type as {@link #courseMiddleLines}.
+     */
+    private final Map<Set<ControlPointDTO>, StringBuilder> courseMiddleLineTexts = new HashMap<>();
     final LineInfoProvider startLineInfoProvider = new LineInfoProvider() {
         @Override
         public String getLineInfo() {
@@ -2356,7 +2362,9 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
                         keysAlreadyHandled.get(key).getB() : 0; // if not handled, the line will be removed, so the waypoint index doesn't matter
                 final Pair<Boolean, Integer> showLineAndZeroBasedIndexOfStartWaypoint = keysAlreadyHandled.get(key);
                 final boolean showCourseMiddleLine = showLineAndZeroBasedIndexOfStartWaypoint != null && showLineAndZeroBasedIndexOfStartWaypoint.getA();
-                courseMiddleLines.put(key, showOrRemoveCourseMiddleLine(courseDTO, courseMiddleLines.get(key), zeroBasedIndexOfStartWaypoint, showCourseMiddleLine));
+                courseMiddleLines.put(key, showOrRemoveCourseMiddleLine(courseDTO, courseMiddleLines.get(key),
+                        courseMiddleLineTexts.computeIfAbsent(key, k->new StringBuilder()),
+                        zeroBasedIndexOfStartWaypoint, showCourseMiddleLine));
             }
         }
     }
@@ -2392,36 +2400,38 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
      * @return <code>null</code> if the line is not shown; the polyline object representing the line being displayed
      *         otherwise
      */
-    private Polyline showOrRemoveCourseMiddleLine(final CoursePositionsDTO courseDTO, Polyline lineToShowOrRemoveOrUpdate,
+    private Polyline showOrRemoveCourseMiddleLine(final CoursePositionsDTO courseDTO,
+            Polyline lineToShowOrRemoveOrUpdate,
+            final StringBuilder courseMiddleLineText,
             final int zeroBasedIndexOfStartWaypoint, final boolean showLine) {
         final Position position1DTO = courseDTO.waypointPositions.get(zeroBasedIndexOfStartWaypoint);
         final Position position2DTO = courseDTO.waypointPositions.get(zeroBasedIndexOfStartWaypoint+1);
+        courseMiddleLineText.replace(0, courseMiddleLineText.length(), stringMessages.courseMiddleLine());
+        courseMiddleLineText.append('\n');
+        courseMiddleLineText.append(numberFormatNoDecimal.format(
+                Math.abs(position1DTO.getDistance(position2DTO).getMeters()))+stringMessages.metersUnit());
+        courseMiddleLineText.append(" (");
+        courseMiddleLineText.append(numberFormatTwoDecimals.format(
+                Math.abs(position1DTO.getDistance(position2DTO).getNauticalMiles()))+"NM");
+        courseMiddleLineText.append(")\n");
+        final double legBearingDeg = position1DTO.getBearingGreatCircle(position2DTO).getDegrees();
+        courseMiddleLineText.append(NumberFormatterFactory.getThreeDigitDecimalFormat(0).format(legBearingDeg)+stringMessages.degreesUnit());
+        if (lastCombinedWindTrackInfoDTO != null) {
+            final WindTrackInfoDTO windTrackAtLegMiddle = lastCombinedWindTrackInfoDTO.getCombinedWindOnLegMiddle(zeroBasedIndexOfStartWaypoint);
+            if (windTrackAtLegMiddle != null && windTrackAtLegMiddle.windFixes != null && !windTrackAtLegMiddle.windFixes.isEmpty()) {
+                WindDTO windAtLegMiddle = windTrackAtLegMiddle.windFixes.get(0);
+                final String diff = numberFormatOneDecimal.format(
+                        Math.min(Math.abs(windAtLegMiddle.dampenedTrueWindBearingDeg-legBearingDeg),
+                                             Math.abs(windAtLegMiddle.dampenedTrueWindFromDeg-legBearingDeg)));
+                courseMiddleLineText.append(", ");
+                courseMiddleLineText.append(stringMessages.degreesToWind(diff));
+            }
+        }
+
         final LineInfoProvider lineInfoProvider = new LineInfoProvider() {
             @Override
             public String getLineInfo() {
-                final StringBuilder sb = new StringBuilder();
-                sb.append(stringMessages.courseMiddleLine());
-                sb.append('\n');
-                sb.append(numberFormatNoDecimal.format(
-                        Math.abs(position1DTO.getDistance(position2DTO).getMeters()))+stringMessages.metersUnit());
-                sb.append(" (");
-                sb.append(numberFormatTwoDecimals.format(
-                        Math.abs(position1DTO.getDistance(position2DTO).getNauticalMiles()))+"NM");
-                sb.append(")\n");
-                final double legBearingDeg = position1DTO.getBearingGreatCircle(position2DTO).getDegrees();
-                sb.append(NumberFormatterFactory.getThreeDigitDecimalFormat(0).format(legBearingDeg)+stringMessages.degreesUnit());
-                if (lastCombinedWindTrackInfoDTO != null) {
-                    final WindTrackInfoDTO windTrackAtLegMiddle = lastCombinedWindTrackInfoDTO.getCombinedWindOnLegMiddle(zeroBasedIndexOfStartWaypoint);
-                    if (windTrackAtLegMiddle != null && windTrackAtLegMiddle.windFixes != null && !windTrackAtLegMiddle.windFixes.isEmpty()) {
-                        WindDTO windAtLegMiddle = windTrackAtLegMiddle.windFixes.get(0);
-                        final String diff = numberFormatOneDecimal.format(
-                                Math.min(Math.abs(windAtLegMiddle.dampenedTrueWindBearingDeg-legBearingDeg),
-                                                     Math.abs(windAtLegMiddle.dampenedTrueWindFromDeg-legBearingDeg)));
-                        sb.append(", ");
-                        sb.append(stringMessages.degreesToWind(diff));
-                    }
-                }
-                return sb.toString();
+                return courseMiddleLineText.toString();
             }
         };
         return showOrRemoveOrUpdateLine(lineToShowOrRemoveOrUpdate, showLine, position1DTO, position2DTO,
@@ -3919,6 +3929,10 @@ public class RaceMap extends AbstractCompositeComponent<RaceMapSettings> impleme
                 showAdvantageLineAndUpdateWindLadder(getCompetitorsToShow(), getTimer().getTime(), /* timeForPositionTransitionMillis */ -1 /* (no transition) */);
             }
         }.schedule(500);
+    }
+    
+    public TimeRangeActionsExecutor<CompactBoatPositionsDTO, GPSFixDTOWithSpeedWindTackAndLegTypeIterable, Pair<String, DetailType>> getTimeRangeActionsExecutor() {
+        return timeRangeActionsExecutor;
     }
 }
 
