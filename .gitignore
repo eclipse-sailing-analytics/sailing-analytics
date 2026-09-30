@@ -131,3 +131,6 @@ lint/tmp/
 .DS_Store?
 
 /gav.json
+
+# Personal Claude Code project-local settings (not for the team)
+.claude/settings.local.json
