@@ -3,7 +3,7 @@ This document describes the onboarding process for a new team member (developer)
 
 First of all, make sure you've looked at [http://www.amazon.de/Patterns-Elements-Reusable-Object-Oriented-Software/dp/0201633612](http://www.amazon.de/Patterns-Elements-Reusable-Object-Oriented-Software/dp/0201633612). That's a great book, and knowing at least some of it will help you a great deal finding your way around our solution.
 
-## SAP Sailing Analytics Development Setup
+## Eclipse Azimuth Sailing Analytics Development Setup
 
 > **New to the project on a Mac?** There is a self-contained, step-by-step setup guide you can follow top to bottom without looking things up here: [[Onboarding Quickstart (for Mac)|wiki/howto/onboarding-quickstart-mac]]. This document remains the authoritative reference for all platforms and covers the background, edge cases and troubleshooting the quickstart leaves out.
 
@@ -11,14 +11,10 @@ First of all, make sure you've looked at [http://www.amazon.de/Patterns-Elements
 
 1. Git Account
 
-Note that the Github repository mentioned here is a "downstream" repository for the "upstream" repo at https://github.com/eclipse-sailing-analytics/sailing-analytics. The downstream repo contains a "friendly fork" that is not technically a fork in the Github sense but contains differences between its ``main`` branch and the upstream ``main`` branch. Those deviations mostly revolve around branding and naming aspects. If not working specifically on this kind of changes, please work with the upstream repo as a default and use this downstream repo only for such branding and SAP-specific changes.
-
-In particular, you must *never* merge or push this repo's ``main`` branch into the upstream repo's ``main`` branch; otherwise you would risk contaminating upstream with SAP specifics. Merging the upstream's ``main`` branch into this downstream repo's ``main`` branch, however, should work without problems and should happen on a regular basis after reviewing the upstream changes carefully. To make this routine safe and repeatable, there is a helper script that opens the downstream merge as a reviewable pull request; see [Syncing upstream into downstream](#syncing-upstream-into-downstream-via-a-pull-request) below.
-
-   - The primary Git repository for the project is hosted on Github (see [https://github.com/SAP/sailing-analytics](https://github.com/SAP/sailing-analytics)). To clone, use ``git@github.com:SAP/sailing-analytics.git``.
+   - The primary Git repository for the project is hosted on Github (see [https://github.com/eclipse-sailing-analytics/sailing-analytics](https://github.com/eclipse-sailing-analytics/sailing-analytics)). To clone, use ``git@github.com:eclipse-sailing-analytics/sailing-analytics.git``.
    - If you are on Windows, keep in mind you may run into the following problem. By default, the filesystem in Windows enforces a 260 character limit on paths. The longest path length for a file in this project, if the drive name is included, is 263 characters. A possible solution is to pass a single character name for the project folder in the git clone command, and clone the project on drive root, which may bring the longest file path down to compatible length. Alternatively, Windows 10 and 11 offer settings to enable a much much longer maximum file path that requires additional configuration. You may check that out at your own will.
-   - To gain write access you have to become member of the [sailing-analytics-team](https://github.com/orgs/SAP/teams/sailing-analytics-team) organization. For that you need to [link your Github user to the Github SAP organization](https://wiki.one.int.sap/wiki/display/ospodocs/Self-Service+for+Joining+an+SAP+GitHub+Organization). For that to work, your Github account needs to have your @sap.com e-mail address assigned and verified. We still have a shadow repository around that, e.g., powers our Wiki at [https://wiki.sapsailing.com](https://wiki.sapsailing.com) and which lives at ``ssh://trac@sapsailing.com/home/trac/git``. 
-   - Announcements relevant for developers are posted on [GitHub](https://github.com/SAP/sailing-analytics) in the Discussions tab. In order to get notifications you can subscribe to discussions by clicking on "Watch" in the Repository, then "Custom". In the new Popup select "Discussions" and confirm by clicking "Apply".
+   - To gain write access you have to become a committer on the [Eclipse Azimuth Sailing Analytics project](https://projects.eclipse.org/projects/technology.sailing-analytics). 
+   - Announcements relevant for developers are posted on [GitHub](https://github.com/eclipse-sailing-analytics/sailing-analytics) in the Discussions tab. In order to get notifications you can subscribe to discussions by clicking on "Watch" in the Repository, then "Custom". In the new Popup select "Discussions" and confirm by clicking "Apply".
 
    <img src="/wiki/images/github/GitHubWatch.jpg" style="width: 50%"/>
    <img src="/wiki/images/github/GitHubSubscribe.jpg" style="width: 45%"/>
@@ -30,8 +26,7 @@ In particular, you must *never* merge or push this repo's ``main`` branch into t
 
 2. Issues
 
-   - By and large, the upstream repo's issue tracked at [https://github.com/eclipse-sailing-analytics/sailing-analytics/issues](https://github.com/eclipse-sailing-analytics/sailing-analytics/issues) shall be used.
-   - Use [https://github.com/SAP/sailing-analytics/issues](https://github.com/SAP/sailing-analytics/issues) only for issues and tasks that specifically refer to the SAP downstream repository and are of no relevance to the upstream versions.
+   - We use [Github Issues](https://github.com/eclipse-sailing-analytics/sailing-analytics/issues)
 
 3. Wiki
 
@@ -56,51 +51,18 @@ In particular, you must *never* merge or push this repo's ``main`` branch into t
     You will see in section [Tuning the Eclipse Installation](#tuning-the-eclipse-installation)
     below how you announce this GWT SDK to your Eclipse installation.
 10. Get the content of the git repository
-    Clone the repository to your local file system from `git@github.com:SAP/sailing-analytics.git` or `ssh://trac@sapsailing.com/home/trac/git` User "trac" has all public ssh keys.
+    Clone the repository to your local file system from `git@github.com:eclipse-sailing-analytics/sailing-analytics.git` or `ssh://trac@sapsailing.com/home/trac/git` User "trac" has all public ssh keys.
 11. Install the eclipse plugins (see [Automatic Eclipse plugin installation](#automatic-eclipse-plugin-installation))
 12. Configure Eclipse (see [Tuning the Eclipse Installation](#tuning-the-eclipse-installation))
 17. Chrome or Firefox. Safari does not work reliably with this project.
 
 ### Git repository configuration essentials
 
-When working with both, the upstream Eclipse project *and* this downstream SAP-specific version, consider naming your local branches such that accidentally merging downstream changes into upstream becomes unlikely. For example, consider using unique local branch names such as ``eclipse-main`` and ``sap-main`` that you may configure as tracking the correct remote branch. E.g.:
-
-```
-git remote add eclipse git@github.com:eclipse-sailing-analytics/sailing-analytics
-git remote add sap git@github.com:SAP/sailing-analytics
-git fetch eclipse
-git fetch sap
-git checkout -b sap-main sap/main
-git checkout -b eclipse-main eclipse/main
-```
-
 The project has some configuration of line endings for specific file types in ".gitattributes". To make this work as intended, you need to ensure that the git attribute "core.autocrlf" is set to "false". This can be done by navigating to your local repository in a Bash/Git Bash/Cygwin instance and executing the command `git config core.autocrlf false`.
 
 If you are first time git user, don't forget to specify your user metadata. Use the commands `git config user.name "My Name"` and `git config user.email my.email@sap.com` to tell git your name and email address.
 
 Depending on the location of your local repository, it's filepaths might be too long for the default settings to handle. Excecute the command `git config --system core.longpaths true` to enable your system wide git installation to handle long file paths.
-
-### Syncing upstream into downstream via a pull request
-
-Regularly merging the upstream Eclipse ``main`` into the SAP downstream ``main`` (see the note under [Git Account](#accounts) above) is automated by `configuration/merge-upstream-to-downstream.sh`. It performs the whole routine as a **reviewable pull request** rather than a direct push, so the downstream branch-protection rules are honoured: the merge PR is authored from a *secondary* GitHub account's fork, which leaves your primary account free to review and approve it (the rules forbid approving your own last push).
-
-The script fetches upstream and downstream fast-forward-only, aborts early if upstream has nothing new to contribute (so it never opens an empty PR), merges downstream then upstream into the fork branch, pushes, and opens (or, idempotently, updates) the PR with the incoming commit subjects in its body.
-
-Prerequisites (on top of the `eclipse` and `sap` remotes and the `eclipse-main` / `sap-main` local branches from above):
-
-- A **secondary GitHub account with a fork** of the downstream repository, added as a remote whose URL embeds that account's personal access token, plus a local branch tracking that fork's ``main`` (by default named ``<fork-remote>-sap-main``). This one-time setup — including the parts that need a browser and 2FA — is written up separately in [[Setting up a fork account for the merge script|wiki/howto/development/fork-account-setup]] (optional; only needed if you actually run the script).
-- The [`gh` CLI](https://cli.github.com/) installed and on your `PATH`.
-
-Every option can also be supplied through a ``MERGE_U2D_*`` environment variable, with precedence *command-line option > environment variable > built-in default*. The only value without a default is the fork remote, so exporting it in your ``~/.bashrc`` lets you run the script with no arguments at all:
-
-```
-export MERGE_U2D_FORK_REMOTE=myfork
-configuration/merge-upstream-to-downstream.sh
-```
-
-Run ``configuration/merge-upstream-to-downstream.sh -h`` for the full list of options and their live resolved defaults.
-
-**Tab completion (optional but nice):** `configuration/merge-upstream-to-downstream.bash-completion` adds Bash completion for the script — it completes option names, completes remote-name options against your actual git remotes, and completes the branch options against the branches *of the resolved remote* (respecting the same option/env/default precedence). Enable it by sourcing it from your ``~/.bashrc`` (``source /path/to/configuration/merge-upstream-to-downstream.bash-completion``) or by symlinking it into a Bash-completion directory under the command's basename, e.g. ``ln -s "$PWD/configuration/merge-upstream-to-downstream.bash-completion" ~/.local/share/bash-completion/completions/merge-upstream-to-downstream.sh``.
 
 ### Automatic Eclipse plugin installation
 The necessary Eclipse plugins can be automatically installed into a newly unzipped version of ["2026-06"](https://www.eclipse.org/downloads/packages/release/2026-09/r/eclipse-ide-eclipse-committers) by using the `pluginsForEclipse2026-0.p2f` file, found in the git repository cloned in _step 11_. To install the plugins open Eclipse and install Software Items from File. (File ⇒ Import ⇒ Install ⇒ Install Software from File). The description file is located at `/configuration/pluginsForEclipse2026-09.p2f`. 
