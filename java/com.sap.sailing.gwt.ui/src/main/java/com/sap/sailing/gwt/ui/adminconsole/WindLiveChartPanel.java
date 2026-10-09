@@ -1,5 +1,6 @@
 package com.sap.sailing.gwt.ui.adminconsole;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,6 +16,7 @@ import com.sap.sailing.domain.common.WindSource;
 import com.sap.sailing.gwt.ui.client.SailingServiceWriteAsync;
 import com.sap.sailing.gwt.ui.client.StringMessages;
 import com.sap.sailing.gwt.ui.shared.WindInfoForRaceDTO;
+import com.sap.sailing.gwt.ui.shared.WindTrackInfoDTO;
 import com.sap.sse.common.Duration;
 import com.sap.sse.common.impl.MillisecondsTimePoint;
 import com.sap.sse.gwt.client.ErrorReporter;
@@ -66,6 +68,7 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
             final WindHistoryLoader windHistoryLoader, final StringMessages stringMessages,
             final ErrorReporter errorReporter, final Duration windHistoryDuration,
             final Duration windUpdateInterval) {
+        //no name because window has the same one already (careful with getChild to avoid null exceptions)
         super("");
         this.sailingServiceWrite = sailingServiceWrite;
         this.windHistoryLoader = windHistoryLoader;
@@ -182,6 +185,7 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
                                 windLiveUpdateRequestPendingSubscriptionId = null;
                             }
                             if (subscriptionId.equals(windLiveSubscriptionId)) {
+                                mergeIntoLastHistoryData(result);
                                 windChart.appendData(result);
                             }
                         }
@@ -199,6 +203,35 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
         }
     }
 
+    private void mergeIntoLastHistoryData(final WindInfoForRaceDTO appendedData) {
+        if (appendedData == null || appendedData.windTrackInfoByWindSource == null) {
+            return;
+        }
+        if (lastHistoryData == null) {
+            lastHistoryData = appendedData;
+            return;
+        }
+        if (lastHistoryData.windTrackInfoByWindSource == null) {
+            lastHistoryData.windTrackInfoByWindSource = new HashMap<>();
+        }
+        for (final WindSource windSource : appendedData.windTrackInfoByWindSource.keySet()) {
+            final WindTrackInfoDTO newTrack = appendedData.windTrackInfoByWindSource.get(windSource);
+            if (newTrack == null || newTrack.windFixes == null || newTrack.windFixes.isEmpty()) {
+                continue;
+            }
+            final WindTrackInfoDTO existing = lastHistoryData.windTrackInfoByWindSource.get(windSource);
+            if (existing == null) {
+                lastHistoryData.windTrackInfoByWindSource.put(windSource, newTrack);
+            } else {
+                if (existing.windFixes == null) {
+                    existing.windFixes = new ArrayList<>(newTrack.windFixes);
+                } else {
+                    existing.windFixes.addAll(newTrack.windFixes);
+                }
+            }
+        }
+    }
+    
     private void stopWindLiveSubscription() {
         windLiveUpdateTimer.cancel();
         windLiveUpdateRequestPendingSubscriptionId = null;
@@ -239,8 +272,7 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
     }
 
     public void resizeChart(final int containerWidthPx, final int containerHeightPx) {
-        final int captionHeight = getElement().getFirstChildElement().getOffsetHeight();
-        windChart.resize(containerWidthPx, containerHeightPx - captionHeight);
+        windChart.resize(containerWidthPx, containerHeightPx);
     }
 
     @Override
