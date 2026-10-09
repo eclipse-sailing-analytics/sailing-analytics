@@ -1,12 +1,10 @@
-package com.sap.sailing.gwt.ui.server;
+package com.sap.sailing.domain.igtimiadapter;
 
 import java.util.HashMap;
 import java.util.Map;
 
 import com.sap.sailing.declination.DeclinationService;
 import com.sap.sailing.domain.common.WindSource;
-import com.sap.sailing.domain.igtimiadapter.IgtimiConnection;
-import com.sap.sailing.domain.igtimiadapter.LiveDataConnection;
 import com.sap.sailing.domain.igtimiadapter.shared.IgtimiWindReceiver;
 import com.sap.sailing.server.interfaces.WindLiveSubscription;
 import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeeder;
@@ -37,7 +35,7 @@ public class IgtimiWindLiveSubscriptionFeeder implements WindLiveSubscriptionFee
         }
         connected = liveDataConnection != null && liveDataConnection.isConnected();
     }
-    
+
     @Override
     public boolean hasConnected() {
         if (!connected && liveDataConnection != null && liveDataConnection.isConnected()) {

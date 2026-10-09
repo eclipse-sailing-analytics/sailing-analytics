@@ -1219,6 +1219,7 @@ public interface StringMessages extends com.sap.sse.gwt.client.StringMessages,
     String raceIsInLiveTimePanelMode();
     String backToLiveTimePanelMode();
     String windChart();
+    String windChartVertical();
     String windChartLoading();
     String mediaNoVideosCaption();
     String mediaShowVideoCaption();

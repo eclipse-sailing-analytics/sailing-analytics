@@ -28,12 +28,18 @@ import com.sap.sailing.gwt.ui.shared.WindInfoForRaceDTO;
 public class WindLiveChart extends Composite implements RequiresResize {
     private final Chart chart;
     private final WindChartDataRenderer windChartDataRenderer;
+    private final boolean inverted;
 
     public WindLiveChart(final StringMessages stringMessages) {
+        this(stringMessages, /* inverted */ false);
+    }
+
+    public WindLiveChart(final StringMessages stringMessages, final boolean inverted) {
+        this.inverted = inverted;
         chart = new Chart()
                 .setWidth100()
                 .setHeight100()
-                //.setInverted(true)
+                .setInverted(inverted)
                 .setZoomType(BaseChart.ZoomType.X)
                 .setChartTitle(new ChartTitle().setText(""))
                 .setCredits(new Credits().setEnabled(false))
@@ -91,5 +97,13 @@ public class WindLiveChart extends Composite implements RequiresResize {
     public void onResize() {
         chart.setSizeToMatchContainer();
         chart.redraw();
+    }
+
+    public void resize(final int widthPx, final int heightPx) {
+        chart.setSize(widthPx, heightPx, false);
+    }
+
+    public boolean isInverted() {
+        return inverted;
     }
 }

@@ -10,6 +10,7 @@ import com.google.gwt.user.client.Timer;
 import com.google.gwt.user.client.rpc.AsyncCallback;
 import com.google.gwt.user.client.ui.CaptionPanel;
 import com.google.gwt.user.client.ui.RequiresResize;
+import com.google.gwt.user.client.ui.SimplePanel;
 import com.sap.sailing.domain.common.WindSource;
 import com.sap.sailing.gwt.ui.client.SailingServiceWriteAsync;
 import com.sap.sailing.gwt.ui.client.StringMessages;
@@ -32,7 +33,10 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
     private final ErrorReporter errorReporter;
     private final Duration windHistoryDuration;
     private final Duration windUpdateInterval;
-    private final WindLiveChart windChart;
+    private final StringMessages stringMessages;
+    private final SimplePanel chartContainer;
+    private WindLiveChart windChart;
+    private WindInfoForRaceDTO lastHistoryData;
     private final Set<WindSource> shownWindSources = new HashSet<>();
     private String windLiveSubscriptionId;
     private int windSelectionVersion;
@@ -62,14 +66,18 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
             final WindHistoryLoader windHistoryLoader, final StringMessages stringMessages,
             final ErrorReporter errorReporter, final Duration windHistoryDuration,
             final Duration windUpdateInterval) {
-        super(stringMessages.windChart());
+        super("");
         this.sailingServiceWrite = sailingServiceWrite;
         this.windHistoryLoader = windHistoryLoader;
         this.errorReporter = errorReporter;
         this.windHistoryDuration = windHistoryDuration;
         this.windUpdateInterval = windUpdateInterval;
+        this.stringMessages = stringMessages;
         windChart = new WindLiveChart(stringMessages);
-        add(windChart);
+        chartContainer = new SimplePanel(windChart);
+        chartContainer.setWidth("100%");
+        chartContainer.setHeight("100%");
+        add(chartContainer);
         setVisible(false);
     }
 
@@ -77,6 +85,7 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
         final Set<WindSource> windSources = new HashSet<>(selectedWindSources);
         final int selectionVersion = ++windSelectionVersion;
         stopWindLiveSubscription();
+        lastHistoryData = null;
         for (final WindSource windSource : shownWindSources) {
             windChart.removeWindSource(windSource);
         }
@@ -152,6 +161,7 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
         if (selectionVersion == windSelectionVersion
                 && windSourcesPending.isEmpty()
                 && windLiveSubscriptionId != null) {
+            lastHistoryData = combinedHistory;
             windChart.showData(combinedHistory);
             loadWindLiveUpdates();
             windLiveUpdateTimer.scheduleRepeating((int) windUpdateInterval.asMillis());
@@ -211,6 +221,26 @@ public class WindLiveChartPanel extends CaptionPanel implements RequiresResize {
                     public void onFailure(final Throwable caught) {
                     }
                 });
+    }
+
+    public void toggleOrientation() {
+        windLiveUpdateTimer.cancel();
+        windLiveUpdateRequestPendingSubscriptionId = null;
+        final WindLiveChart newChart = new WindLiveChart(stringMessages, !windChart.isInverted());
+        windChart = newChart;
+        chartContainer.setWidget(newChart);
+        if (lastHistoryData != null) {
+            newChart.showData(lastHistoryData);
+        }
+        if (windLiveSubscriptionId != null) {
+            loadWindLiveUpdates();
+            windLiveUpdateTimer.scheduleRepeating((int) windUpdateInterval.asMillis());
+        }
+    }
+
+    public void resizeChart(final int containerWidthPx, final int containerHeightPx) {
+        final int captionHeight = getElement().getFirstChildElement().getOffsetHeight();
+        windChart.resize(containerWidthPx, containerHeightPx - captionHeight);
     }
 
     @Override

@@ -18,6 +18,7 @@ import java.util.Set;
 
 import com.google.gwt.cell.client.SafeHtmlCell;
 import com.google.gwt.core.client.GWT;
+import com.google.gwt.event.dom.client.MouseMoveEvent;
 import com.google.gwt.i18n.client.NumberFormat;
 import com.google.gwt.safehtml.shared.SafeHtml;
 import com.google.gwt.safehtml.shared.SafeHtmlBuilder;
@@ -32,12 +33,15 @@ import com.google.gwt.user.client.rpc.AsyncCallback;
 import com.google.gwt.user.client.ui.Anchor;
 import com.google.gwt.user.client.ui.Button;
 import com.google.gwt.user.client.ui.CaptionPanel;
+import com.google.gwt.user.client.ui.CheckBox;
+import com.google.gwt.user.client.ui.DialogBox;
 import com.google.gwt.user.client.ui.FlowPanel;
 import com.google.gwt.user.client.ui.Focusable;
 import com.google.gwt.user.client.ui.Grid;
 import com.google.gwt.user.client.ui.HorizontalPanel;
 import com.google.gwt.user.client.ui.Label;
 import com.google.gwt.user.client.ui.Panel;
+import com.google.gwt.user.client.ui.SimplePanel;
 import com.google.gwt.user.client.ui.SuggestBox;
 import com.google.gwt.user.client.ui.TextBox;
 import com.google.gwt.user.client.ui.VerticalPanel;
@@ -95,6 +99,7 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
     private final SailingServiceWriteAsync sailingServiceWrite;
     private final ErrorReporter errorReporter;
     private final WindLiveChartPanel windChartPanel;
+    private final DialogBox windChartDialog;
     private final LabeledAbstractFilterablePanel<IgtimiDeviceWithSecurityDTO> filterDevicesPanel;
     private final RefreshableMultiSelectionModel<IgtimiDeviceWithSecurityDTO> refreshableDevicesSelectionModel;
     private final LabeledAbstractFilterablePanel<IgtimiDataAccessWindowWithSecurityDTO> filterDataAccessWindowPanel;
@@ -262,24 +267,61 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         final Button addDataAccessWindoweButton = dawButtonPanel.addCreateAction(stringMessages.addIgtimiDataAccessWindow(), () -> addDataAccessWindow());
         addDataAccessWindoweButton.ensureDebugId("addIgtimiDataAccessWindow");
         dawTable.setVisible(false); // make visible if and only if a single device is selected in the devices table
-        // wind chart
+        // wind chart — lives in a floating, draggable, resizable dialog
         windChartPanel = new WindLiveChartPanel(
                 sailingServiceWrite,
                 (windSource, from, to, callback)->sailingServiceWrite.getWindInfoForIgtimiDevice(
                         windSource.getId().toString(), from, to, callback),
                 stringMessages, errorReporter);
         windChartPanel.ensureDebugId("WindLiveChartPanel");
-//        windChartPanel.setWidth("350px");
-//        windChartPanel.setHeight("800px");
-        windChartPanel.setWidth("1200px");
-        windChartPanel.setHeight("400px");
-        add(windChartPanel);
+        windChartPanel.setWidth("100%");
+        windChartPanel.setHeight("100%");
+        windChartDialog = new DialogBox(/* autoHide */ false, /* modal */ false);
+        windChartDialog.setText(stringMessages.windChart());
+        final SimplePanel resizableContainer = new SimplePanel(windChartPanel);
+        resizableContainer.setWidth("900px");
+        resizableContainer.setHeight("450px");
+        resizableContainer.getElement().getStyle().setProperty("resize", "both");
+        resizableContainer.getElement().getStyle().setProperty("overflow", "hidden");
+        final int[] lastSize = {0, 0};
+        resizableContainer.addDomHandler(event -> {
+            final int w = resizableContainer.getOffsetWidth();
+            final int h = resizableContainer.getOffsetHeight();
+            if (w != lastSize[0] || h != lastSize[1]) {
+                lastSize[0] = w;
+                lastSize[1] = h;
+                windChartPanel.resizeChart(w, h);
+            }
+        }, MouseMoveEvent.getType());
+        final VerticalPanel dialogContent = new VerticalPanel();
+        dialogContent.setWidth("100%");
+        final HorizontalPanel dialogHeader = new HorizontalPanel();
+        dialogHeader.setWidth("100%");
+        final CheckBox orientationToggle = new CheckBox(stringMessages.windChartVertical());
+        orientationToggle.addValueChangeHandler(event -> {
+            windChartPanel.toggleOrientation();
+            windChartPanel.resizeChart(resizableContainer.getOffsetWidth(), resizableContainer.getOffsetHeight());
+        });
+        dialogHeader.add(orientationToggle);
+        dialogHeader.setHorizontalAlignment(HorizontalPanel.ALIGN_RIGHT);
+        final Button closeButton = new Button("✕");
+        closeButton.addClickHandler(event -> windChartDialog.hide());
+        dialogHeader.add(closeButton);
+        dialogContent.add(dialogHeader);
+        dialogContent.add(resizableContainer);
+        windChartDialog.setWidget(dialogContent);
+        windChartDialog.addCloseHandler(event -> windChartPanel.setSelectedWindSources(new HashSet<>()));
         refreshableDevicesSelectionModel.addSelectionChangeHandler(e -> {
             final Set<WindSource> selectedWindSources = new HashSet<>();
             for (final IgtimiDeviceWithSecurityDTO device : refreshableDevicesSelectionModel.getSelectedSet()) {
                 selectedWindSources.add(new WindSourceWithAdditionalID(WindSourceType.EXPEDITION, device.getSerialNumber()));
             }
             windChartPanel.setSelectedWindSources(selectedWindSources);
+            if (selectedWindSources.isEmpty()) {
+                windChartDialog.hide();
+            } else if (!windChartDialog.isShowing()) {
+                windChartDialog.center();
+            }
         });
     }
     

@@ -53,6 +53,12 @@ public class WindChartDataRenderer {
         this(chart, stringMessages, null, addSeriesToChartOnCreation, seriesPointsUpdater, null);
     }
 
+    public WindChartDataRenderer(final Chart chart, final StringMessages stringMessages,
+            final boolean addSeriesToChartOnCreation, final SeriesPointsUpdater seriesPointsUpdater,
+            final PointsAddedHandler pointsAddedHandler) {
+        this(chart, stringMessages, null, addSeriesToChartOnCreation, seriesPointsUpdater, pointsAddedHandler);
+    }
+
     public WindChartDataRenderer(final Chart chart, final StringMessages stringMessages, final int maxSeriesPoints,
             final boolean addSeriesToChartOnCreation, final SeriesPointsUpdater seriesPointsUpdater,
             final PointsAddedHandler pointsAddedHandler) {

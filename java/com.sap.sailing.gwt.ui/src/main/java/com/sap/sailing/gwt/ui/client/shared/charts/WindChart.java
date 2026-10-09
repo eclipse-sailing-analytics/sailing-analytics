@@ -618,7 +618,7 @@ public class WindChart extends AbstractRaceChart<WindChartSettings> implements R
     }
 
     /**
-     * Computes avg/min/max over a point array for zoom. Returns null if there are no valid points. Direction values are
+     * Computes avg/min/max over a point array. Returns null if there are no valid points. Direction values are
      * normalized to 0-360 before accumulation to undo the shift applied by stayClosestToPreviousPoint.
      */
     private static Map<StatKind, Double> computeStatValues(final Point[] points, final Long fromMillis, final Long toMillis,

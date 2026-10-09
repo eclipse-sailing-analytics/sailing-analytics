@@ -224,6 +224,7 @@ import com.sap.sailing.domain.coursetemplate.WaypointTemplate;
 import com.sap.sailing.domain.igtimiadapter.DataAccessWindow;
 import com.sap.sailing.domain.igtimiadapter.Device;
 import com.sap.sailing.domain.igtimiadapter.IgtimiConnection;
+import com.sap.sailing.domain.igtimiadapter.IgtimiWindLiveSubscriptionFeederFactory;
 import com.sap.sailing.domain.igtimiadapter.server.riot.RiotServer;
 import com.sap.sailing.domain.igtimiadapter.server.riot.RiotStandardCommand;
 import com.sap.sailing.domain.leaderboard.Leaderboard;

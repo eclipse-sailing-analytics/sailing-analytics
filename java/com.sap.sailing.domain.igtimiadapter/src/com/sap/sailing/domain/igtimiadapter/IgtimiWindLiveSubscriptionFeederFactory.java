@@ -1,4 +1,4 @@
-package com.sap.sailing.gwt.ui.server;
+package com.sap.sailing.domain.igtimiadapter;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -9,8 +9,6 @@ import java.util.function.Supplier;
 
 import com.sap.sailing.domain.common.WindSource;
 import com.sap.sailing.domain.common.WindSourceType;
-import com.sap.sailing.domain.igtimiadapter.Device;
-import com.sap.sailing.domain.igtimiadapter.IgtimiConnection;
 import com.sap.sailing.server.interfaces.WindLiveSubscription;
 import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeeder;
 import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory;
@@ -20,7 +18,7 @@ import com.sap.sailing.server.interfaces.WindLiveSubscriptionFeederFactory;
  * {@link WindSourceType#EXPEDITION}, connecting to the Igtimi live data service.
  * <p>
  * An instance of this factory is registered as an OSGi service of type
- * {@link WindLiveSubscriptionFeederFactory} from {@link SailingServiceImpl}'s constructor,
+ * {@link WindLiveSubscriptionFeederFactory} from {@code SailingServiceWriteImpl}'s constructor,
  * giving {@code RacingEventServiceImpl} access to it through a {@code ServiceTracker}.
  * <p>
  * The {@code correctByDeclination} flag is passed per-call via
