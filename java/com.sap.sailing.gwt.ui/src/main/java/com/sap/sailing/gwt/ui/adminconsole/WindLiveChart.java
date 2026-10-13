@@ -16,10 +16,14 @@ import org.moxieapps.gwt.highcharts.client.labels.YAxisLabels;
 import org.moxieapps.gwt.highcharts.client.plotOptions.LinePlotOptions;
 import org.moxieapps.gwt.highcharts.client.plotOptions.Marker;
 
+import org.moxieapps.gwt.highcharts.client.events.ChartSelectionEvent;
+import org.moxieapps.gwt.highcharts.client.events.ChartSelectionEventHandler;
+
 import com.google.gwt.i18n.client.DateTimeFormat;
 import com.google.gwt.user.client.ui.Composite;
 import com.google.gwt.user.client.ui.RequiresResize;
 import com.sap.sailing.domain.common.WindSource;
+import com.sap.sailing.domain.common.impl.ColorMapImpl;
 import com.sap.sailing.gwt.ui.client.StringMessages;
 import com.sap.sailing.gwt.ui.client.shared.charts.ChartUtil;
 import com.sap.sailing.gwt.ui.client.shared.charts.WindChartDataRenderer;
@@ -29,12 +33,18 @@ public class WindLiveChart extends Composite implements RequiresResize {
     private final Chart chart;
     private final WindChartDataRenderer windChartDataRenderer;
     private final boolean inverted;
+    private boolean userZoomed = false;
 
     public WindLiveChart(final StringMessages stringMessages) {
-        this(stringMessages, /* inverted */ false);
+        this(stringMessages, /* inverted */ false, new ColorMapImpl<>());
     }
 
     public WindLiveChart(final StringMessages stringMessages, final boolean inverted) {
+        this(stringMessages, inverted, new ColorMapImpl<>());
+    }
+
+    public WindLiveChart(final StringMessages stringMessages, final boolean inverted,
+            final ColorMapImpl<WindSource> colorMap) {
         this.inverted = inverted;
         chart = new Chart()
                 .setWidth100()
@@ -44,7 +54,14 @@ public class WindLiveChart extends Composite implements RequiresResize {
                 .setChartTitle(new ChartTitle().setText(""))
                 .setCredits(new Credits().setEnabled(false))
                 .setLinePlotOptions(new LinePlotOptions()
-                        .setMarker(new Marker().setEnabled(false)));
+                        .setMarker(new Marker().setEnabled(false)))
+                .setSelectionEventHandler(new ChartSelectionEventHandler() {
+                    @Override
+                    public boolean onSelection(final ChartSelectionEvent event) {
+                        userZoomed = event.getXAxisMinAsLongOrNull() != null;
+                        return true;
+                    }
+                });
         chart.getXAxis()
                 .setType(Axis.Type.DATE_TIME)
                 .setLabels(new XAxisLabels().setFormatter((AxisLabelsData data) ->
@@ -73,9 +90,14 @@ public class WindLiveChart extends Composite implements RequiresResize {
                     public void setSeriesPoints(final Series series, final Point[] points) {
                         series.setPoints(points, /* redraw */ false);
                     }
-                });
+                },
+                colorMap);
         initWidget(chart);
         ensureDebugId("WindLiveChart");
+    }
+
+    public ColorMapImpl<WindSource> getColorMap() {
+        return windChartDataRenderer.getColorMap();
     }
 
     public void showData(final WindInfoForRaceDTO result) {
@@ -101,6 +123,14 @@ public class WindLiveChart extends Composite implements RequiresResize {
 
     public void resize(final int widthPx, final int heightPx) {
         chart.setSize(widthPx, heightPx, false);
+    }
+
+    public void setXAxisExtremes(final long fromMillis, final long toMillis) {
+        chart.getXAxis().setExtremes(fromMillis, toMillis, /* redraw */ false, /* animation */ false);
+    }
+
+    public boolean isUserZoomed() {
+        return userZoomed;
     }
 
     public boolean isInverted() {

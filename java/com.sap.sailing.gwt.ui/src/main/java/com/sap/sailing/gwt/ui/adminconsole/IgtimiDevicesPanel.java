@@ -33,7 +33,6 @@ import com.google.gwt.user.client.rpc.AsyncCallback;
 import com.google.gwt.user.client.ui.Anchor;
 import com.google.gwt.user.client.ui.Button;
 import com.google.gwt.user.client.ui.CaptionPanel;
-import com.google.gwt.user.client.ui.CheckBox;
 import com.google.gwt.user.client.ui.DialogBox;
 import com.google.gwt.user.client.ui.FlowPanel;
 import com.google.gwt.user.client.ui.Focusable;
@@ -297,12 +296,6 @@ public class IgtimiDevicesPanel extends FlowPanel implements FilterablePanelProv
         dialogContent.setWidth("100%");
         final HorizontalPanel dialogHeader = new HorizontalPanel();
         dialogHeader.setWidth("100%");
-        final CheckBox orientationToggle = new CheckBox(stringMessages.windChartVertical());
-        orientationToggle.addValueChangeHandler(event -> {
-            windChartPanel.toggleOrientation();
-            windChartPanel.resizeChart(resizableContainer.getOffsetWidth(), resizableContainer.getOffsetHeight());
-        });
-        dialogHeader.add(orientationToggle);
         dialogHeader.setHorizontalAlignment(HorizontalPanel.ALIGN_RIGHT);
         final Button closeButton = new Button("✕");
         closeButton.addClickHandler(event -> windChartDialog.hide());

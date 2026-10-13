@@ -43,7 +43,7 @@ public class WindChartDataRenderer {
     private final Map<WindSource, Series> windSourceSpeedSeries = new HashMap<WindSource, Series>();
     private final Map<WindSource, Point[]> windSourceDirectionPoints = new HashMap<WindSource, Point[]>();
     private final Map<WindSource, Point[]> windSourceSpeedPoints = new HashMap<WindSource, Point[]>();
-    private final ColorMapImpl<WindSource> colorMap = new ColorMapImpl<WindSource>();
+    private final ColorMapImpl<WindSource> colorMap;
     private Point firstPointOfFirstSeries;
     private Long timeOfEarliestRequestInMillis;
     private Long timeOfLatestRequestInMillis;
@@ -69,12 +69,26 @@ public class WindChartDataRenderer {
     private WindChartDataRenderer(final Chart chart, final StringMessages stringMessages, final Integer maxSeriesPoints,
             final boolean addSeriesToChartOnCreation, final SeriesPointsUpdater seriesPointsUpdater,
             final PointsAddedHandler pointsAddedHandler) {
+        this(chart, stringMessages, maxSeriesPoints, addSeriesToChartOnCreation, seriesPointsUpdater,
+                pointsAddedHandler, new ColorMapImpl<>());
+    }
+
+    private WindChartDataRenderer(final Chart chart, final StringMessages stringMessages, final Integer maxSeriesPoints,
+            final boolean addSeriesToChartOnCreation, final SeriesPointsUpdater seriesPointsUpdater,
+            final PointsAddedHandler pointsAddedHandler, final ColorMapImpl<WindSource> colorMap) {
         this.chart = chart;
         this.stringMessages = stringMessages;
         this.maxSeriesPoints = maxSeriesPoints;
         this.addSeriesToChartOnCreation = addSeriesToChartOnCreation;
         this.seriesPointsUpdater = seriesPointsUpdater;
         this.pointsAddedHandler = pointsAddedHandler;
+        this.colorMap = colorMap;
+    }
+
+    public WindChartDataRenderer(final Chart chart, final StringMessages stringMessages,
+            final boolean addSeriesToChartOnCreation, final SeriesPointsUpdater seriesPointsUpdater,
+            final ColorMapImpl<WindSource> colorMap) {
+        this(chart, stringMessages, null, addSeriesToChartOnCreation, seriesPointsUpdater, null, colorMap);
     }
 
     /**
