@@ -52,7 +52,7 @@ on:
         description: Build with a local target platform (set to "true" to use local target platform)
         default: 'false'
       runner_cpus:
-        description: Empty means ubuntu-latest, usually 4 CPUs with little disk/memory, but if you have runners named ubuntu-latest-Xcpu, it can be 4, 8, 16, and 64 as well, using, e.g., ubuntu-latest-16cpu; default is ubuntu-latest
+        description: Empty means ubuntu-26.04, usually 4 CPUs with little disk/memory, but if you have runners named ubuntu-latest-Xcpu, it can be 4, 8, 16, and 64 as well, using, e.g., ubuntu-latest-16cpu; default is ubuntu-26.04
         default: ''
       firefox_version:
         description: Version to use for Selenium tests; default is "latest", but could, e.g., be "141.0" or a specific pin like "140.0"
@@ -62,7 +62,7 @@ jobs:
   # The "changes" job will cause the "build" job to get skipped for trivial changes
   changes:
     permissions: {}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       # On workflow_dispatch there is no 'before' field in the event payload, so
       # paths-filter cannot compute a meaningful diff (it would warn and fall back
@@ -102,7 +102,7 @@ jobs:
       contents: write
       checks: write
       actions: read
-    runs-on: ${{ github.event.inputs.runner_cpus != '' && format('ubuntu-latest-{0}cpu', github.event.inputs.runner_cpus) || 'ubuntu-latest' }}
+    runs-on: ${{ github.event.inputs.runner_cpus != '' && format('ubuntu-latest-{0}cpu', github.event.inputs.runner_cpus) || 'ubuntu-26.04' }}
     outputs:
       skip_tests: ${{ steps.mode.outputs.skip_tests }}
     steps:
@@ -382,7 +382,7 @@ jobs:
       statuses: write
     needs: [changes, build]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Post build-gate commit status
         env:
@@ -425,7 +425,7 @@ jobs:
     permissions: {}
     needs: [changes, build]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - run: |
           if [[ "${{ needs.build.result }}" == "success" ]]; then
