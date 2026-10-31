@@ -7,6 +7,7 @@
     <listAttribute key="com.gwtplugins.gwt.eclipse.core.ENTRY_POINT_MODULES">
         <listEntry value="com.sap.sailing.gwt.ui.AdminConsole"/>
         <listEntry value="com.sap.sailing.gwt.home.Home"/>
+        <listEntry value="com.sap.sailing.gwt.managementconsole.ManagementConsole"/>
     </listAttribute>
     <booleanAttribute key="com.gwtplugins.gwt.eclipse.core.SUPERDEVMODE_ENABLED" value="true"/>
     <stringAttribute key="com.gwtplugins.gwt.eclipse.core.URL" value="/gwt/Home.html"/>

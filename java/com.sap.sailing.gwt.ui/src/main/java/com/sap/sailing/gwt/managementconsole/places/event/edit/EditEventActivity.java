@@ -1,6 +1,5 @@
 package com.sap.sailing.gwt.managementconsole.places.event.edit;
 
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
@@ -14,14 +13,13 @@ import com.sap.sailing.gwt.managementconsole.places.AbstractManagementConsoleAct
 import com.sap.sailing.gwt.managementconsole.places.event.overview.EventOverviewPlace;
 import com.sap.sailing.gwt.managementconsole.places.regatta.overview.RegattaOverviewPlace;
 import com.sap.sailing.gwt.ui.shared.EventDTO;
-import com.sap.sailing.gwt.ui.shared.VenueDTO;
 import com.sap.sse.gwt.client.Notification;
 import com.sap.sse.gwt.client.Notification.NotificationType;
 
 public class EditEventActivity extends AbstractManagementConsoleActivity<EditEventPlace> {
 
     private EditEventView editEventView;
-    private EventDTO currentEvent;
+    private boolean saving;
 
     public EditEventActivity(final ManagementConsoleClientFactory clientFactory, final EditEventPlace place) {
         super(clientFactory, place);
@@ -40,14 +38,13 @@ public class EditEventActivity extends AbstractManagementConsoleActivity<EditEve
     private void loadEvent(final UUID eventId) {
         getClientFactory().getEventService().getEvent(eventId, new AsyncCallback<EventDTO>() {
             @Override
-            public void onFailure(Throwable caught) {
+            public void onFailure(final Throwable caught) {
                 Notification.notify("Failed to load event", NotificationType.ERROR);
                 getClientFactory().getPlaceController().goTo(new EventOverviewPlace());
             }
 
             @Override
-            public void onSuccess(EventDTO result) {
-                currentEvent = result;
+            public void onSuccess(final EventDTO result) {
                 editEventView.populateForm(result);
             }
         });
@@ -55,33 +52,19 @@ public class EditEventActivity extends AbstractManagementConsoleActivity<EditEve
 
     private class EditEventViewPresenter implements EditEventView.Presenter {
 
-        public EditEventViewPresenter(EditEventView editEventView) {
+        public EditEventViewPresenter(final EditEventView editEventView) {
             editEventView.setPresenter(this);
         }
 
         @Override
         public void saveEvent(final String name, final String description, final String venue, final Date startDate,
                 final Date endDate, final List<CourseAreaDTO> courseAreas, final boolean isPublic) {
-            // Update the event DTO with new values
-            currentEvent.setName(name);
-            currentEvent.setDescription(description);
-            currentEvent.startDate = startDate;
-            currentEvent.endDate = endDate;
-            currentEvent.isPublic = isPublic;
-            // Update venue
-            VenueDTO venueDTO = currentEvent.getVenue();
-            final List<CourseAreaDTO> oldCourseAreas = venueDTO != null && venueDTO.getCourseAreas() != null
-                    ? new ArrayList<>(venueDTO.getCourseAreas()) : new ArrayList<CourseAreaDTO>();
-            if (venueDTO == null) {
-                venueDTO = new VenueDTO(venue);
-                currentEvent.setVenue(venueDTO);
-            } else {
-                venueDTO.setName(venue);
+            if (!saving) {
+                saving = true;
+                editEventView.setSaving(/* saving */ true);
+                getClientFactory().getEventService().updateEvent(getPlace().getEventId(), name, description, venue,
+                        startDate, endDate, courseAreas, isPublic, getUpdateEventCallback());
             }
-            // The course areas already carry their identity and geometry; persist them as-is. The server reconciles
-            // added and removed course areas separately from the event update, so hand over the previous set for diffing.
-            venueDTO.setCourseAreas(courseAreas);
-            getClientFactory().getEventService().updateEvent(currentEvent, oldCourseAreas, getUpdateEventCallback());
         }
 
         @Override
@@ -99,12 +82,16 @@ public class EditEventActivity extends AbstractManagementConsoleActivity<EditEve
             return new AsyncCallback<EventDTO>() {
 
                 @Override
-                public void onFailure(Throwable caught) {
+                public void onFailure(final Throwable caught) {
+                    saving = false;
+                    editEventView.setSaving(/* saving */ false);
                     Notification.notify("Failed to save event: " + caught.getMessage(), NotificationType.ERROR);
                 }
 
                 @Override
-                public void onSuccess(EventDTO result) {
+                public void onSuccess(final EventDTO result) {
+                    saving = false;
+                    editEventView.setSaving(/* saving */ false);
                     Notification.notify("Event saved successfully", NotificationType.SUCCESS);
                     getClientFactory().getPlaceController().goTo(new RegattaOverviewPlace(result.getId()));
                 }

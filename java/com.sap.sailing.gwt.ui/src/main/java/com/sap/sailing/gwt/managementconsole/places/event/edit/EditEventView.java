@@ -13,6 +13,8 @@ public interface EditEventView extends View<EditEventView.Presenter>, RequiresRe
 
     void populateForm(EventDTO event);
 
+    void setSaving(boolean saving);
+
     interface Presenter extends com.sap.sailing.gwt.managementconsole.mvp.Presenter {
         void saveEvent(String name, String description, String venue, Date startDate, Date endDate,
                 List<CourseAreaDTO> courseAreas, boolean isPublic);

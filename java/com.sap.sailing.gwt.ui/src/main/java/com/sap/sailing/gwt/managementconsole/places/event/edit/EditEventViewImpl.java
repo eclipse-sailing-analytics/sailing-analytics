@@ -94,6 +94,11 @@ public class EditEventViewImpl extends Composite implements EditEventView {
     }
 
     @Override
+    public void setSaving(final boolean saving) {
+        saveEventButton.setEnabled(!saving);
+    }
+
+    @Override
     public void setPresenter(final Presenter presenter) {
         this.presenter = presenter;
         courseAreasInput.setDataProvider(new CourseAreasInput.DataProvider() {
