@@ -216,6 +216,16 @@ implements ReplicableSecurityService, ClearStateTestSupport {
 
     private static final String ADMIN_DEFAULT_PASSWORD = "admin";
 
+    /**
+     * Name of the environment variable through which operators can provide the initial password for the
+     * {@link UserStore#ADMIN_USERNAME admin} user that is created when a fresh instance starts with an empty
+     * security store (i.e. one that does not replicate its security service from a master). When set to a
+     * non-blank value, that value is used as the initial admin password and a strong password is enforced;
+     * when unset, the well-known {@link #ADMIN_DEFAULT_PASSWORD} is used for backward compatibility and a
+     * security warning is logged. See GitHub issue #6312.
+     */
+    private static final String ADMIN_INITIAL_PASSWORD_ENV_VAR = "SAILING_ADMIN_INITIAL_PASSWORD";
+
     private final Set<String> migratedHasPermissionTypes = new ConcurrentSkipListSet<>();
 
     private SecurityManager securityManager;
@@ -364,6 +374,7 @@ implements ReplicableSecurityService, ClearStateTestSupport {
         this.hasPermissionsProvider = hasPermissionsProvider;
         this.cacheManager = loadReplicationCacheManagerContents();
         this.corsFilterConfigurationsByReplicaSetName = loadCORSFilterConfigurations();
+        applyCORSFilterForLocalReplicaSet();
         logger.info("Loaded shiro.ini file from: classpath:shiro.ini");
         final StringBuilder logMessage = new StringBuilder("[urls] section from Shiro configuration:");
         final Section urlsSection = shiroConfiguration.getSection("urls");
@@ -428,15 +439,18 @@ implements ReplicableSecurityService, ClearStateTestSupport {
         logger.info("Loading CORS filter configurations");
         final ConcurrentMap<String, Pair<Boolean, Set<String>>> result = new ConcurrentHashMap<>();
         result.putAll(PersistenceFactory.INSTANCE.getDefaultDomainObjectFactory().loadCORSFilterConfigurationsForReplicaSetNames());
-        if (result.containsKey(ServerInfo.getName())) {
-            final Pair<Boolean, Set<String>> thisServersCORSFilterConfig = result.get(ServerInfo.getName());
+        return result;
+    }
+
+    private void applyCORSFilterForLocalReplicaSet() {
+        if (corsFilterConfigurationsByReplicaSetName.containsKey(ServerInfo.getName())) {
+            final Pair<Boolean, Set<String>> thisServersCORSFilterConfig = corsFilterConfigurationsByReplicaSetName.get(ServerInfo.getName());
             if (thisServersCORSFilterConfig.getA()) {
                 getCORSFilterConfiguration().setWildcard();
             } else {
                 getCORSFilterConfiguration().setOrigins(thisServersCORSFilterConfig.getB());
             }
         }
-        return result;
     }
     
     @Override
@@ -486,11 +500,25 @@ implements ReplicableSecurityService, ClearStateTestSupport {
             isInitialOrMigration = false;
             if (!store.hasUsers()) {
                 isInitialOrMigration = true;
-                logger.info("No users found, creating default user \""+UserStore.ADMIN_USERNAME+"\" with password \""+ADMIN_DEFAULT_PASSWORD+"\"");
+                final String configuredInitialPassword = System.getenv(ADMIN_INITIAL_PASSWORD_ENV_VAR);
+                final boolean hasConfiguredInitialPassword = configuredInitialPassword != null
+                        && !configuredInitialPassword.trim().isEmpty();
+                final String adminPassword = hasConfiguredInitialPassword ? configuredInitialPassword
+                        : ADMIN_DEFAULT_PASSWORD;
+                if (hasConfiguredInitialPassword) {
+                    logger.info("No users found, creating default user \"" + UserStore.ADMIN_USERNAME
+                            + "\" with the initial password supplied via the " + ADMIN_INITIAL_PASSWORD_ENV_VAR
+                            + " environment variable");
+                } else {
+                    logger.warning("No users found, creating default user \"" + UserStore.ADMIN_USERNAME
+                            + "\" with the well-known default password because the " + ADMIN_INITIAL_PASSWORD_ENV_VAR
+                            + " environment variable is not set. This is insecure; set " + ADMIN_INITIAL_PASSWORD_ENV_VAR
+                            + " to a strong value on fresh instances. Future versions may refuse to start without it.");
+                }
                 final User adminUser = createSimpleUser(UserStore.ADMIN_USERNAME, "nobody@sapsailing.com",
-                        ADMIN_DEFAULT_PASSWORD,
+                        adminPassword,
                         /* fullName */ null, /* company */ null, Locale.ENGLISH, /* validationBaseURL */ null,
-                        null, /* clientIP */ null, /* enforce strong password */ false);
+                        null, /* clientIP */ null, /* enforce strong password */ hasConfiguredInitialPassword);
                 setOwnership(adminUser.getIdentifier(), adminUser, null);
                 Role adminRole = new Role(adminRoleDefinition, /* transitive */ true);
                 addRoleForUserAndSetUserAsOwner(adminUser, adminRole);
@@ -1862,7 +1890,7 @@ implements ReplicableSecurityService, ClearStateTestSupport {
             logger.info(authProviderName + " requires Request token first.. obtaining..");
             try {
                 requestToken = service.getRequestToken();
-                logger.info("Got request token: " + requestToken);
+                logger.fine("Obtained request token from provider " + authProviderName);
                 // we must save in the session. It will be required to
                 // get the access token
                 SessionUtils.saveRequestTokenToSession(requestToken);
@@ -2665,6 +2693,7 @@ implements ReplicableSecurityService, ClearStateTestSupport {
         final SecurityServiceInitialLoadExtensionsDTO initialLoadExtensions = (SecurityServiceInitialLoadExtensionsDTO) is.readObject();
         final ConcurrentMap<String, Pair<Boolean, Set<String>>> newCORSFilterConfigurations = initialLoadExtensions.getCorsFilterConfigurationsByReplicaSetName();
         corsFilterConfigurationsByReplicaSetName.putAll(newCORSFilterConfigurations);
+        applyCORSFilterForLocalReplicaSet();
         if (initialLoadExtensions.getClientIPBasedTimedLocksForBearerTokenAuthentication() != null) {
             // checking for null for backward compatibility; an older primary/master may not have known this field yet
             clientIPBasedTimedLocksForBearerTokenAuthentication.putAll(initialLoadExtensions.getClientIPBasedTimedLocksForBearerTokenAuthentication());

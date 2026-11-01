@@ -145,6 +145,7 @@ import com.sap.sailing.domain.common.DataImportSubProgress;
 import com.sap.sailing.domain.common.DetailType;
 import com.sap.sailing.domain.common.DeviceIdentifier;
 import com.sap.sailing.domain.common.LeaderboardType;
+import com.sap.sailing.domain.common.MasterDataImportObjectCreationCount;
 import com.sap.sailing.domain.common.MaxPointsReason;
 import com.sap.sailing.domain.common.NoWindException;
 import com.sap.sailing.domain.common.RaceIdentifier;
@@ -375,6 +376,7 @@ import com.sap.sse.security.shared.impl.UserGroup;
 import com.sap.sse.security.util.RemoteServerUtil;
 import com.sap.sse.shared.classloading.ClassLoaderRegistry;
 import com.sap.sse.shared.media.ImageDescriptor;
+import com.sap.sse.shared.media.MediaDescriptor;
 import com.sap.sse.shared.media.VideoDescriptor;
 import com.sap.sse.util.ClearStateTestSupport;
 import com.sap.sse.util.HttpUrlConnectionHelper;
@@ -868,6 +870,9 @@ Replicator {
         logger.info("Created " + this);
         this.eventResolverListeners = Collections.newSetFromMap(new ConcurrentHashMap<>());
         this.securityServiceTracker = securityServiceTracker;
+        this.numberOfTrackedRacesToRestore = restoreTrackedRaces
+                ? Long.MAX_VALUE /* set to the real value in restoreTrackedRaces(), staying unhealthy until races loaded */
+                : 0;
         this.numberOfTrackedRacesRestored = new AtomicInteger();
         this.numberOfTrackedRacesRestoredDoneLoading = new AtomicInteger();
         this.numberOfTrackedRacesStillLoading = new AtomicInteger();
@@ -2159,16 +2164,23 @@ Replicator {
                             raceTrackingHandler, /* markPassingRaceFingerprintRegistry */ this, /*maneuverRaceFingerprintRegistry*/ this);
                     assert tracker.getRegatta() == regatta;
                 }
+                final Set<Consumer<RaceTracker>> claimedCallbacks;
                 LockUtil.lockForWrite(raceTrackersByRegattaLock);
                 try {
                     raceTrackersByID.put(tracker.getID(), tracker);
                     final Set<RaceTracker> trackers = raceTrackersByRegatta.computeIfAbsent(tracker.getRegatta(),
                             r->Collections.newSetFromMap(new ConcurrentHashMap<>()));
                     trackers.add(tracker);
-                    notifyListenersForNewRaceTracker(tracker);
+                    // Claim the callbacks under the write lock, atomically with publishing the tracker, so that a
+                    // concurrent getRaceTrackerByRegattaAndRaceIdentifier(...) can never miss it. Invoking them,
+                    // however, is deferred until after the lock is released because a callback may block (e.g. tracker
+                    // startup waiting for race logs to attach) and holding the global lock across such a wait would
+                    // stall all other readers and writers of raceTrackersByRegatta.
+                    claimedCallbacks = removeListenersForNewRaceTracker(tracker);
                 } finally {
                     LockUtil.unlockAfterWrite(raceTrackersByRegattaLock);
                 }
+                invokeRaceTrackerCallbacks(tracker, claimedCallbacks);
                 // TODO we assume here that the regatta name is unique which necessitates adding the boat class name to
                 // it in RegattaImpl constructor
                 String regattaName = tracker.getRegatta().getName();
@@ -2220,6 +2232,40 @@ Replicator {
             return tracker.getRaceHandle();
         } finally {
             unlockRaceTrackersById(trackerID, raceTrackersByIdLock);
+        }
+    }
+
+    /**
+     * Claims (removes and returns) the callbacks registered for the {@code tracker}'s
+     * {@link RaceTracker#getRaceIdentifier() race identifier}. This must run under the
+     * {@link #raceTrackersByRegattaLock} write lock, atomically with the insertion of the tracker into
+     * {@link #raceTrackersByRegatta}, so that a concurrent {@link #getRaceTrackerByRegattaAndRaceIdentifier} (which
+     * under the read lock either finds the tracker or enqueues its callback) can never end up with a callback that is
+     * neither invoked directly nor picked up here. The returned callbacks are meant to be
+     * {@link #invokeRaceTrackerCallbacks(RaceTracker, Set) invoked afterwards}, outside the lock, because invoking them
+     * may block (e.g. tracker startup waiting for race logs to attach) and must not hold the global
+     * {@link #raceTrackersByRegattaLock} while doing so.
+     */
+    private Set<Consumer<RaceTracker>> removeListenersForNewRaceTracker(RaceTracker tracker) {
+        final RaceIdentifier raceIdentifier = tracker.getRaceIdentifier();
+        final Set<Consumer<RaceTracker>> result;
+        if (raceIdentifier != null) {
+            result = getRaceTrackerCallbacks().remove(raceIdentifier);
+        } else {
+            result = null;
+        }
+        return result;
+    }
+
+    /**
+     * Invokes the callbacks {@link #removeListenersForNewRaceTracker(RaceTracker) claimed} for a newly added
+     * {@code tracker}. Intended to be called <em>after</em> the {@link #raceTrackersByRegattaLock} write lock has been
+     * released, as a callback may block (e.g. waiting for race logs to attach) and holding the global lock across such
+     * a wait would stall all other readers and writers of {@link #raceTrackersByRegatta}.
+     */
+    private void invokeRaceTrackerCallbacks(RaceTracker tracker, Set<Consumer<RaceTracker>> callbacks) {
+        if (callbacks != null) {
+            callbacks.forEach((callback) -> callback.accept(tracker));
         }
     }
 
@@ -3206,7 +3252,7 @@ Replicator {
     @Override
     public void removeRace(Regatta regatta, RaceDefinition race) throws MalformedURLException, IOException,
             InterruptedException {
-        logger.info("Removing the race " + race + "...");
+        logger.info("Removing the race " + regatta.getName()+ " / " + race + "...");
         final RaceTrackingConnectivityParameters connectivityParams = connectivityParametersByRace.remove(race);
         if (connectivityParams != null) {
             getMongoObjectFactory().removeConnectivityParametersForRaceToRestore(connectivityParams);
@@ -4041,6 +4087,37 @@ Replicator {
         // to keep changes minimial
         mongoObjectFactory.storeEvent(event);
     }
+    
+    private <MD extends MediaDescriptor >void updateEventMediaHealth(UUID eventId, String mediaUrl, boolean missing, boolean missingMailNotificationSent, Function<Event, Iterable<MD>> mediaProvider) {
+        final Event event = eventsById.get(eventId);
+        if (event == null) {
+            throw new IllegalArgumentException("Sailing event with ID " + eventId + " does not exist.");
+        }
+        boolean mediumFound = false;
+        for (final MediaDescriptor medium : mediaProvider.apply(event)) {
+            if (medium.getURL() != null && mediaUrl.equals(medium.getURL().toString())) {
+                medium.setMissing(missing);
+                medium.setMissingMailNotificationSent(missingMailNotificationSent);
+                mediumFound = true;
+            }
+        }
+        if (mediumFound) {
+            mongoObjectFactory.storeEvent(event);
+        } else {
+            logger.warning("Could not update media health for URL " + mediaUrl + " because it is not attached to event "
+                    + event.getName());
+        }
+    }
+
+    @Override
+    public void updateEventImageHealth(UUID eventId, String imageUrl, boolean missing, boolean missingMailNotificationSent) {
+        updateEventMediaHealth(eventId, imageUrl, missing, missingMailNotificationSent, Event::getImages);
+    }
+
+    @Override
+    public void updateEventVideoHealth(UUID eventId, String videoUrl, boolean missing, boolean missingMailNotificationSent) {
+        updateEventMediaHealth(eventId, videoUrl, missing, missingMailNotificationSent, Event::getVideos);
+    }
 
     @Override
     public void renameEvent(UUID id, String newName) {
@@ -4686,9 +4763,26 @@ Replicator {
     }
 
     @Override
+    public DataImportProgress createOrUpdateDataImportProgressWithReplication(UUID importOperationId,
+            double overallProgressPct, DataImportSubProgress subProgress, double subProgressPct,
+            final MasterDataImportObjectCreationCount result) {
+        // Create/Update locally, including the final result
+        final DataImportProgress progress = createOrUpdateDataImportProgressWithoutReplication(importOperationId,
+                overallProgressPct, subProgress, subProgressPct);
+        if (result != null) {
+            progress.setResult(result);
+        }
+        // Create/Update on replicas, carrying the same result so a client polling a replica flips getResult() at the
+        // same true completion point as the master (see bug6227)
+        replicate(new CreateOrUpdateDataImportProgress(importOperationId, overallProgressPct, subProgress,
+                subProgressPct, result));
+        return progress;
+    }
+
+    @Override
     public DataImportProgress createOrUpdateDataImportProgressWithoutReplication(UUID importOperationId,
             double overallProgressPct, DataImportSubProgress subProgress, double subProgressPct) {
-        DataImportProgress progress = dataImportLock.getProgress(importOperationId);
+        DataImportProgress progress = getDataImportLock().getProgress(importOperationId);
         boolean newObject = false;
         if (progress == null) {
             progress = new DataImportProgressImpl(importOperationId);
@@ -4698,7 +4792,7 @@ Replicator {
         progress.setCurrentSubProgress(subProgress);
         progress.setCurrentSubProgressPct(subProgressPct);
         if (newObject) {
-            dataImportLock.addProgress(importOperationId, progress);
+            getDataImportLock().addProgress(importOperationId, progress);
         }
         return progress;
     }
@@ -5090,9 +5184,13 @@ Replicator {
             LockUtil.unlockAfterRead(regattasByNameLock);
         }
         if (regatta != null) {
-            // it's important to obtain the read lock here to make sure that while deciding which callbacks to invoke
-            // and which callbacks to enqueue no concurrent insertions take place which could lead to trackers ending
-            // up not invoking their callback. See the write-locking in addRace(...).
+            // It's important to obtain the read lock here so that deciding whether a matching tracker already exists
+            // and, if not, enqueueing the callback happens atomically against addRace(...): under its write lock
+            // addRace(...) publishes the tracker into raceTrackersByRegatta and, in the same critical section, claims
+            // (removes) the callbacks registered here. Without this locking a tracker could be published between our
+            // lookup and our enqueue, leaving the callback neither found here nor claimed there. Note that addRace(...)
+            // only *claims* the callbacks under the lock and *invokes* them after releasing it; the enqueue below is
+            // therefore guaranteed to be either observed by that claim or preceded by a tracker we already found.
             LockUtil.lockForRead(raceTrackersByRegattaLock);
             try {
                 final Set<RaceTracker> raceTrackersForRegatta = raceTrackersByRegatta.get(regatta);
@@ -5121,16 +5219,6 @@ Replicator {
             }
         }
         return raceTrackerCallbacks;
-    }
-
-    private void notifyListenersForNewRaceTracker(RaceTracker tracker) {
-        final RaceIdentifier raceIdentifier = tracker.getRaceIdentifier();
-        if (raceIdentifier != null) {
-            Set<Consumer<RaceTracker>> callbacks = getRaceTrackerCallbacks().remove(raceIdentifier);
-            if (callbacks != null) {
-                callbacks.forEach((callback) -> callback.accept(tracker));
-            }
-        }
     }
 
     @Override
