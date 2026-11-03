@@ -36,7 +36,6 @@ import com.sap.sse.common.TimePoint;
  * of a mismatch.
  */
 public class WindLiveSubscription {
-    private static final int MAX_WIND_FIXES_PER_DELIVERY = WindImportConstants.WIND_LIVE_MAX_FIXES_PER_DELIVERY;
     private static final Duration IDLE_TIMEOUT = Duration.ONE_MINUTE.times(2);
     private static final Duration CONNECTION_TIMEOUT = Duration.ONE_MINUTE.times(2);
 
@@ -60,7 +59,7 @@ public class WindLiveSubscription {
     public void addWind(final WindSource windSource, final Wind wind) {
         synchronized (windsByWindSource) {
             final LinkedList<Wind> winds = windsByWindSource.computeIfAbsent(windSource, key -> new LinkedList<>());
-            if (winds.size() >= MAX_WIND_FIXES_PER_DELIVERY) {
+            if (winds.size() >= WindImportConstants.WIND_LIVE_MAX_FIXES_PER_DELIVERY) {
                 winds.removeFirst();
             }
             winds.add(wind);
