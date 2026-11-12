@@ -20,9 +20,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 import com.sap.sailing.domain.base.Competitor;
+import com.sap.sailing.domain.base.Fleet;
 import com.sap.sailing.domain.base.RaceColumn;
 import com.sap.sailing.domain.base.impl.RaceColumnInSeriesImpl;
+import com.sap.sailing.domain.common.LeaderboardType;
 import com.sap.sailing.domain.leaderboard.Leaderboard;
+import com.sap.sailing.domain.leaderboard.impl.FlexibleLeaderboardImpl;
 import com.sap.sse.common.Util;
 import com.sap.sse.common.Util.Pair;
 
@@ -45,7 +48,8 @@ class ProductionScoringReplayTest {
                 "high_point_winner_gets_eight_and_interpolation", "high_point_winner_gets_five", "high_point_winner_gets_six",
                 "low_point_a82_only", "low_point_tie_break_based_on_last_series_only",
                 "low_point_with_eliminations_and_rounds_winner_gets_07", "high_point_last_breaks_tie",
-                "high_point_ess_overall", "high_point_ess_overall_12", "low_point_league_overall", "low_point_overall_using_net_points")
+                "high_point_ess_overall", "high_point_ess_overall_12", "low_point_league_overall", "low_point_overall_using_net_points",
+                "flexible-qingdao-2011", "flexible-kiel-2012-470w", "flexible-505-worlds-2011")
                 .stream().map((final String resource) -> DynamicTest.dynamicTest(resource, () -> {
                     final ProductionScoringFixture fixture = new ProductionScoringFixture(resource, /* reverseInsertionOrder */ false);
                     assertReplay(fixture);
@@ -60,6 +64,9 @@ class ProductionScoringReplayTest {
             assertReplay(child);
         }
         final Leaderboard leaderboard = fixture.leaderboard;
+        if (LeaderboardType.FlexibleLeaderboard.name().equals(fixture.data.get("type"))) {
+            assertFlexibleConfiguration(fixture);
+        }
         final List<Competitor> ranked = Util.asList(leaderboard.getCompetitorsFromBestToWorst(fixture.timePoint));
         assertEquals(fixture.competitors.size(), ranked.size());
         for (final JSONObject row : ProductionScoringFixture.objects(fixture.data, "competitors")) {
@@ -83,6 +90,42 @@ class ProductionScoringReplayTest {
                 assertTrue(actualRank >= 66 && actualRank <= 68, context);
             } else {
                 assertEquals(((Number) row.get("expectedRank")).intValue(), actualRank, context);
+            }
+        }
+    }
+
+    private void assertFlexibleConfiguration(final ProductionScoringFixture fixture) {
+        final Leaderboard leaderboard = fixture.leaderboard;
+        assertEquals(FlexibleLeaderboardImpl.class, leaderboard.getClass());
+        final List<String> expectedColumns = new ArrayList<>();
+        final List<String> actualColumns = new ArrayList<>();
+        for (final RaceColumn column : leaderboard.getRaceColumns()) {
+            actualColumns.add(column.getName());
+        }
+        for (final JSONObject definition : ProductionScoringFixture.objects(fixture.data, "columns")) {
+            final String name = (String) definition.get("name");
+            expectedColumns.add(name);
+            final RaceColumn column = leaderboard.getRaceColumnByName(name);
+            assertNotNull(column, name);
+            assertEquals(definition.get("medal"), column.isMedalRace(), name);
+            assertEquals(definition.get("oneAlwaysStaysOne"), column.isOneAlwaysStaysOne(), name);
+            assertEquals(((Number) definition.get("factor")).doubleValue(),
+                    leaderboard.getScoringScheme().getScoreFactor(column), TOLERANCE, name);
+            final List<JSONObject> fleets = ProductionScoringFixture.objects(definition, "fleets");
+            assertEquals(fleets.size(), Util.size(column.getFleets()), name);
+            for (final JSONObject fleetDefinition : fleets) {
+                final Fleet fleet = column.getFleetByName((String) fleetDefinition.get("name"));
+                assertNotNull(fleet, name);
+                assertEquals(((Number) fleetDefinition.get("ordering")).intValue(), fleet.getOrdering(), name);
+            }
+        }
+        assertEquals(expectedColumns, actualColumns);
+        for (final JSONObject row : ProductionScoringFixture.objects(fixture.data, "competitors")) {
+            final List<JSONObject> cells = ProductionScoringFixture.objects(row, "cells");
+            assertEquals(expectedColumns.size(), cells.size(), "Complete result row: " + row.get("name"));
+            for (final JSONObject cell : cells) {
+                assertNotNull(cell.get("points"), "Scored cell: " + row.get("name") + " / " + cell.get("column"));
+                assertNotNull(cell.get("expectedNet"), "Expected net score: " + row.get("name") + " / " + cell.get("column"));
             }
         }
     }

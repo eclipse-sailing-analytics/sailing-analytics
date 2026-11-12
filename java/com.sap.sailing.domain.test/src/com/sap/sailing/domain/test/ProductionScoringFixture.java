@@ -30,9 +30,11 @@ import com.sap.sailing.domain.base.impl.FleetImpl;
 import com.sap.sailing.domain.base.impl.RegattaImpl;
 import com.sap.sailing.domain.base.impl.SeriesImpl;
 import com.sap.sailing.domain.common.CompetitorRegistrationType;
+import com.sap.sailing.domain.common.LeaderboardType;
 import com.sap.sailing.domain.common.MaxPointsReason;
 import com.sap.sailing.domain.common.ScoringSchemeType;
 import com.sap.sailing.domain.leaderboard.Leaderboard;
+import com.sap.sailing.domain.leaderboard.impl.FlexibleLeaderboardImpl;
 import com.sap.sailing.domain.leaderboard.impl.LeaderboardGroupImpl;
 import com.sap.sailing.domain.leaderboard.impl.RegattaLeaderboardImpl;
 import com.sap.sailing.domain.leaderboard.impl.ThresholdBasedResultDiscardingRuleImpl;
@@ -115,6 +117,14 @@ final class ProductionScoringFixture {
             result = new LeaderboardGroupMetaLeaderboard(new LeaderboardGroupImpl(groupName, groupName,
                     /* displayName */ null, /* displayGroupsInReverseOrder */ false, childBoards),
                     DomainFactory.INSTANCE.createScoringScheme(ScoringSchemeType.valueOf((String) data.get("scheme"))), discards);
+        } else if (LeaderboardType.FlexibleLeaderboard.name().equals(data.get("type"))) {
+            final FlexibleLeaderboardImpl flexible = new FlexibleLeaderboardImpl((String) data.get("name"), discards,
+                    DomainFactory.INSTANCE.createScoringScheme(ScoringSchemeType.valueOf((String) data.get("scheme"))),
+                    /* courseArea */ null);
+            for (final JSONObject definition : objects(data, "columns")) {
+                flexible.addRaceColumn((String) definition.get("name"), (boolean) definition.get("medal"));
+            }
+            result = flexible;
         } else {
             final List<Series> series = new ArrayList<>();
             for (final JSONObject definition : objects(data, "series")) {

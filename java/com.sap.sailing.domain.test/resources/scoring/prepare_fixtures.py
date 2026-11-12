@@ -102,6 +102,29 @@ def main():
         fixture["suppressedIds"] = sorted({c["id"] for child in row["children"] for c in child["snapshot"]["competitors"]} - parent_ids)
         fixture["configurationNotes"] = "Child links/order from group REST response. Overall suppression inferred from child IDs absent from captured overall field. Only explicitly corrected overall cells are imported."
         write(destination, identifier, fixture)
+    flexible_folder = audit / "flexible-fixtures-20261112"
+    flexible_metadata = json.loads((flexible_folder / "metadata.json").read_text())
+    for capture in json.loads((flexible_folder / "captures.json").read_text()):
+        if capture["identifier"] == "flexible-kiel-2012-24mr":
+            # Retain the complete capture, but prefer boards without an entirely unscored entrant.
+            continue
+        for key in ("results", "configuration"):
+            assert hashlib.sha256((flexible_folder / capture[key + "File"]).read_bytes()).hexdigest() == capture[key + "Request"]["sha256"]
+        metadata = next(m for m in flexible_metadata if m["identifier"] == capture["identifier"])
+        data = json.loads((flexible_folder / capture["resultsFile"]).read_text())
+        assert data["type"] == metadata["type"] == "FlexibleLeaderboard"
+        assert data["columnNames"] == [c["name"] for c in metadata["columns"]]
+        assert metadata["otherTieBreakingLeaderboard"] is None
+        for competitor in data["competitors"]:
+            for column in metadata["columns"]:
+                cell = competitor["raceScores"][column["name"]]
+                assert cell["totalPoints"] is not None and cell["netPoints"] is not None
+        fixture = extract({"snapshot": data, "request": capture["resultsRequest"]},
+                          {"configuration": {"series": []}, "request": capture["configurationRequest"]},
+                          metadata, {"base": capture["base"], "source": "flexible-fixtures-20261112/metadata.json",
+                                     "sha256": hashlib.sha256((flexible_folder / "metadata.json").read_bytes()).hexdigest()})
+        fixture["configurationNotes"] = "Complete flexible leaderboard; column flags, default fleet and discard thresholds decoded from the captured SailingService.getLeaderboard reply. Empty fleet cells retain score corrections without race-log membership."
+        write(destination, capture["identifier"], fixture)
 
 
 def extract(snapshot, config, metadata, group):
@@ -130,7 +153,10 @@ def extract(snapshot, config, metadata, group):
             "columns": series["races"],
         })
     for column in columns:
-        fixture["columns"].append({k: column[k] for k in ("name", "factor", "explicitFactor", "oneAlwaysStaysOne")})
+        definition = {k: column[k] for k in ("name", "factor", "explicitFactor", "oneAlwaysStaysOne")}
+        if data["type"] == "FlexibleLeaderboard":
+            definition.update({k: column[k] for k in ("medal", "fleets")})
+        fixture["columns"].append(definition)
     for competitor in data["competitors"]:
         row = {k: competitor[k] for k in ("id", "name", "displayName", "sailID")}
         row.update(expectedRank=competitor["rank"], expectedTotal=competitor["netPoints"], cells=[])
