@@ -2,6 +2,7 @@ package com.sap.sailing.domain.test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -22,9 +23,12 @@ import org.junit.jupiter.api.TestFactory;
 import com.sap.sailing.domain.base.Competitor;
 import com.sap.sailing.domain.base.Fleet;
 import com.sap.sailing.domain.base.RaceColumn;
+import com.sap.sailing.domain.base.RaceColumnInSeries;
+import com.sap.sailing.domain.base.Series;
 import com.sap.sailing.domain.base.impl.RaceColumnInSeriesImpl;
 import com.sap.sailing.domain.common.LeaderboardType;
 import com.sap.sailing.domain.leaderboard.Leaderboard;
+import com.sap.sailing.domain.leaderboard.RegattaLeaderboard;
 import com.sap.sailing.domain.leaderboard.impl.FlexibleLeaderboardImpl;
 import com.sap.sse.common.Util;
 import com.sap.sse.common.Util.Pair;
@@ -49,7 +53,7 @@ class ProductionScoringReplayTest {
                 "low_point_a82_only", "low_point_tie_break_based_on_last_series_only",
                 "low_point_with_eliminations_and_rounds_winner_gets_07", "high_point_last_breaks_tie",
                 "high_point_ess_overall", "high_point_ess_overall_12", "low_point_league_overall", "low_point_overall_using_net_points",
-                "flexible-qingdao-2011", "flexible-kiel-2012-470w", "flexible-505-worlds-2011")
+                "flexible-qingdao-2011", "flexible-kiel-2012-470w", "flexible-505-worlds-2011", "youth2025-windsurf-women")
                 .stream().map((final String resource) -> DynamicTest.dynamicTest(resource, () -> {
                     final ProductionScoringFixture fixture = new ProductionScoringFixture(resource, /* reverseInsertionOrder */ false);
                     assertReplay(fixture);
@@ -83,6 +87,9 @@ class ProductionScoringReplayTest {
                 if (net != null) {
                     assertEquals(net.doubleValue(), leaderboard.getNetPoints(competitor, column, fixture.timePoint, discarded),
                             TOLERANCE, context + " / " + column.getName());
+                } else {
+                    assertNull(leaderboard.getNetPoints(competitor, column, fixture.timePoint, discarded),
+                            context + " / " + column.getName());
                 }
             }
             final int actualRank = ranked.indexOf(competitor) + 1;
@@ -128,6 +135,41 @@ class ProductionScoringReplayTest {
                 assertNotNull(cell.get("expectedNet"), "Expected net score: " + row.get("name") + " / " + cell.get("column"));
             }
         }
+    }
+
+    @Test
+    void youthWindsurfingKeepsOneWhenDoublingAndCombinesWeightingDiscardsAndTies() throws Exception {
+        final ProductionScoringFixture fixture = new ProductionScoringFixture("youth2025-windsurf-women", /* reverseInsertionOrder */ false);
+        final Leaderboard board = fixture.leaderboard;
+        final RaceColumn slalomRace = board.getRaceColumnByName("R3");
+        final Series slalom = ((RaceColumnInSeries) slalomRace).getSeries();
+        assertTrue(slalom.isOneAlwaysStaysOne());
+        assertEquals(/* expected */ 2.0, board.getScoringScheme().getScoreFactor(slalomRace), TOLERANCE);
+        for (final Series series : ((RegattaLeaderboard) board).getRegatta().getSeries()) {
+            assertNull(series.getResultDiscardingRule(), series.getName());
+            assertEquals(series.getName().startsWith("Slalom"), series.isOneAlwaysStaysOne(), series.getName());
+        }
+        final Competitor winner = fixture.competitors.get("580c1124-1f0d-4624-81c2-c16d349841f0");
+        final Competitor martina = fixture.competitors.get("d293d592-de58-448c-8967-f4c83361d197");
+        final Competitor alba = fixture.competitors.get("861f2e50-5534-4803-bd6a-36c8af2a3d45");
+        // Fixed values independently anchor fixture inversion: a flag error must not cancel between input and output.
+        assertEquals(/* expected */ 1.0, board.getTotalPoints(winner, slalomRace, fixture.timePoint), TOLERANCE);
+        assertEquals(/* expected */ 1.0, board.getNetPoints(winner, slalomRace, fixture.timePoint, Collections.emptySet()), TOLERANCE);
+        assertEquals(/* expected */ 6.0, board.getNetPoints(winner, fixture.timePoint), TOLERANCE);
+        assertEquals(/* expected */ 2.0, board.getTotalPoints(martina, slalomRace, fixture.timePoint), TOLERANCE);
+        assertEquals(/* expected */ 3.0, board.getNetPoints(martina, slalomRace, fixture.timePoint, Collections.emptySet()), TOLERANCE);
+        assertEquals(/* expected */ 4.0, board.getTotalPoints(alba, slalomRace, fixture.timePoint), TOLERANCE);
+        assertEquals(/* expected */ 7.0, board.getNetPoints(alba, slalomRace, fixture.timePoint, Collections.emptySet()), TOLERANCE);
+        final Map<Competitor, Set<RaceColumn>> discards = new HashMap<>();
+        for (final Competitor competitor : Arrays.asList(martina, alba)) {
+            assertEquals(/* expected */ 36.0, board.getNetPoints(competitor, fixture.timePoint), TOLERANCE);
+            discards.put(competitor, board.getResultDiscardingRule().getDiscardedRaceColumns(competitor, board,
+                    board.getRaceColumns(), fixture.timePoint, board.getScoringScheme()));
+        }
+        assertEquals(Collections.singleton(board.getRaceColumnByName("R6")), discards.get(martina));
+        assertEquals(Collections.singleton(board.getRaceColumnByName("R1")), discards.get(alba));
+        assertTrue(compareBetter(fixture, martina, scores(fixture, martina), alba, scores(fixture, alba), discards) < 0);
+        assertTrue(compareBetter(fixture, alba, scores(fixture, alba), martina, scores(fixture, martina), discards) > 0);
     }
 
     @Test

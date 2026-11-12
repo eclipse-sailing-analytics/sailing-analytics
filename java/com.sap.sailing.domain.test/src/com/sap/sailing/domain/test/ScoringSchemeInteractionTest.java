@@ -323,8 +323,10 @@ class ScoringSchemeInteractionTest extends LeaderboardScoringAndRankingTestBase 
     }
 
     @TestFactory
-    Stream<DynamicTest> firstToTwoCarryWinDoesNotDependOnCarryFlag() {
-        return Stream.of(/* carryFlags */ false, /* carryFlags */ true).map((final Boolean carryFlag) -> DynamicTest.dynamicTest("carry flag " + carryFlag, () -> {
+    Stream<DynamicTest> firstToTwoBeatsLowerScoreSumsWithEitherCarryFlagAndLowPointDoesNot() {
+        return Stream.of(ScoringSchemeType.LOW_POINT_FIRST_TO_WIN_TWO_RACES, ScoringSchemeType.LOW_POINT)
+                .flatMap((final ScoringSchemeType type) -> Stream.of(/* carryFlags */ false, /* carryFlags */ true)
+                .map((final Boolean carryFlag) -> DynamicTest.dynamicTest(type + " / carry flag " + carryFlag, () -> {
             final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 4);
             final Competitor a = competitors.get(/* index */ 0);
             final Competitor b = competitors.get(/* index */ 1);
@@ -333,11 +335,14 @@ class ScoringSchemeInteractionTest extends LeaderboardScoringAndRankingTestBase 
             final Regatta regatta = createRegatta(/* qualifying */ 1, new String[] { "Default" }, /* final */ 0,
                     new String[] { "Default" }, /* medal */ true, /* numberOfMedalRaces */ 4, "First to two",
                     DomainFactory.INSTANCE.getOrCreateBoatClass("Fixture", /* typicallyStartsUpwind */ true),
-                    DomainFactory.INSTANCE.createScoringScheme(ScoringSchemeType.LOW_POINT_FIRST_TO_WIN_TWO_RACES));
+                    DomainFactory.INSTANCE.createScoringScheme(type));
             final RegattaLeaderboard board = createLeaderboard(regatta, new int[0]);
             final Series medals = ((RaceColumnInSeries) board.getRaceColumnByName("M1")).getSeries();
             medals.setStartsWithZeroScore(true);
             medals.setFirstColumnIsNonDiscardableCarryForward(carryFlag);
+            for (final RaceColumn column : medals.getRaceColumns()) {
+                column.setFactor(/* factor */ 1.0); // Isolate win precedence from LowPoint's default double Medal weighting.
+            }
             final RaceColumn qualification = board.getRaceColumnByName("Q1");
             qualification.setTrackedRace(qualification.getFleets().iterator().next(),
                     new MockedTrackedRaceWithStartTimeAndRanks(START, competitors));
@@ -357,16 +362,96 @@ class ScoringSchemeInteractionTest extends LeaderboardScoringAndRankingTestBase 
             assertEquals(/* expected */ 5.0, board.getNetPoints(a, AFTER), TOLERANCE);
             final RaceColumn last = board.getRaceColumnByName("M4");
             last.setTrackedRace(fleet, new MockedTrackedRaceWithStartTimeAndRanks(START, Arrays.asList(d, a, b, c)));
-            assertOrder(board, d, a, b, c); // D's two wins beat A's lower points sum.
+            final boolean countsWins = type == ScoringSchemeType.LOW_POINT_FIRST_TO_WIN_TWO_RACES;
+            assertOrder(board, countsWins ? new Competitor[] { d, a, b, c } : new Competitor[] { a, b, d, c });
             assertEquals(/* expected */ 7.0, board.getNetPoints(a, AFTER), TOLERANCE);
             assertEquals(/* expected */ 10.0, board.getNetPoints(d, AFTER), TOLERANCE);
             first.setTrackedRace(fleet, new MockedTrackedRaceWithStartTimeAndRanks(START, Arrays.asList(b, c, d, a)));
             second.setTrackedRace(fleet, new MockedTrackedRaceWithStartTimeAndRanks(START, Arrays.asList(c, b, d, a)));
             last.setTrackedRace(fleet, new MockedTrackedRaceWithStartTimeAndRanks(START, Arrays.asList(a, b, c, d)));
-            assertOrder(board, a, b, c, d); // A's Q win plus one sailed win suffice with either flag value.
+            assertOrder(board, countsWins ? new Competitor[] { a, b, c, d } : new Competitor[] { b, c, a, d });
             assertEquals(/* expected */ 10.0, board.getNetPoints(a, AFTER), TOLERANCE);
             assertEquals(/* expected */ 7.0, board.getNetPoints(b, AFTER), TOLERANCE);
-        }));
+        })));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> carryFlagChangesEqualTotalTieWithoutChangingBonusWins() {
+        return Stream.of(/* carryFlags */ false, /* carryFlags */ true).map((final Boolean carryFlag) ->
+                DynamicTest.dynamicTest("carry tie / " + carryFlag, () -> {
+                    final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 4);
+                    final Competitor a = competitors.get(/* index */ 0);
+                    final Competitor b = competitors.get(/* index */ 1);
+                    final Competitor c = competitors.get(/* index */ 2);
+                    final Competitor d = competitors.get(/* index */ 3);
+                    final Regatta regatta = createRegatta(/* qualifying */ 1, new String[] { "Default" }, /* final */ 0,
+                            new String[] { "Default" }, /* medal */ true, /* numberOfMedalRaces */ 3, "Carry tie",
+                            DomainFactory.INSTANCE.getOrCreateBoatClass("Fixture", /* typicallyStartsUpwind */ true),
+                            DomainFactory.INSTANCE.createScoringScheme(ScoringSchemeType.LOW_POINT_FIRST_TO_WIN_TWO_RACES));
+                    final RegattaLeaderboard board = createLeaderboard(regatta, new int[0]);
+                    final RaceColumn carry = board.getRaceColumnByName("M1");
+                    final Series medals = ((RaceColumnInSeries) carry).getSeries();
+                    medals.setStartsWithZeroScore(true);
+                    medals.setFirstColumnIsNonDiscardableCarryForward(carryFlag);
+                    final Fleet fleet = carry.getFleets().iterator().next();
+                    final List<Competitor> qualificationOrder = Arrays.asList(c, a, b, d);
+                    final RaceColumn qualification = board.getRaceColumnByName("Q1");
+                    qualification.setTrackedRace(qualification.getFleets().iterator().next(),
+                            new MockedTrackedRaceWithStartTimeAndRanks(START, qualificationOrder));
+                    carry.enableCompetitorRegistrationOnRaceLog(fleet);
+                    for (int i = 0; i < qualificationOrder.size(); i++) {
+                        final Competitor competitor = qualificationOrder.get(i);
+                        carry.registerCompetitor(competitor, ((CompetitorWithBoat) competitor).getBoat(), fleet);
+                        board.getScoreCorrection().correctScore(competitor, carry, (double) i + 1);
+                    }
+                    board.getRaceColumnByName("M2").setTrackedRace(fleet,
+                            new MockedTrackedRaceWithStartTimeAndRanks(START, Arrays.asList(b, c, a, d)));
+                    board.getRaceColumnByName("M3").setTrackedRace(fleet,
+                            new MockedTrackedRaceWithStartTimeAndRanks(START, Arrays.asList(d, c, a, b)));
+                    // No two-win champion. A=(2,3,3), B=(3,1,4): direct carry favors A, unflagged A8 favors B.
+                    assertEquals(/* expected */ 8.0, board.getNetPoints(a, AFTER), TOLERANCE);
+                    assertEquals(/* expected */ 8.0, board.getNetPoints(b, AFTER), TOLERANCE);
+                    assertOrder(board, carryFlag ? new Competitor[] { c, a, b, d } : new Competitor[] { c, b, a, d });
+                }));
+    }
+
+    @Test
+    void absentFinalScoreDefersResetButAValidZeroTriggersIt() throws Exception {
+        final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 2);
+        final Competitor a = competitors.get(/* index */ 0);
+        final Competitor b = competitors.get(/* index */ 1);
+        final Regatta regatta = createRegatta(/* qualifying */ 1, new String[] { "Default" }, /* final */ 1,
+                new String[] { "Default" }, /* medal */ false, /* numberOfMedalRaces */ 0, "Deferred reset",
+                DomainFactory.INSTANCE.getOrCreateBoatClass("Fixture", /* typicallyStartsUpwind */ true),
+                DomainFactory.INSTANCE.createScoringScheme(ScoringSchemeType.LOW_POINT));
+        final RegattaLeaderboard board = createLeaderboard(regatta, new int[0]);
+        final RaceColumn qualification = board.getRaceColumnByName("Q1");
+        qualification.setTrackedRace(qualification.getFleets().iterator().next(),
+                new MockedTrackedRaceWithStartTimeAndRanks(START, competitors));
+        board.getScoreCorrection().correctScore(a, qualification, /* correctedScore */ 5.0);
+        final RaceColumn finalRace = board.getRaceColumnByName("F1");
+        ((RaceColumnInSeries) finalRace).getSeries().setStartsWithZeroScore(true);
+        final Fleet fleet = finalRace.getFleets().iterator().next();
+        finalRace.enableCompetitorRegistrationOnRaceLog(fleet);
+        for (final Competitor competitor : competitors) {
+            finalRace.registerCompetitor(competitor, ((CompetitorWithBoat) competitor).getBoat(), fleet);
+            assertNull(board.getTotalPoints(competitor, finalRace, AFTER));
+        }
+        assertEquals(/* expected */ 5.0, board.getNetPoints(a, AFTER), TOLERANCE);
+        assertEquals(/* expected */ 2.0, board.getNetPoints(b, AFTER), TOLERANCE);
+        assertOrder(board, b, a);
+        board.getScoreCorrection().correctScore(a, finalRace, /* correctedScore */ 0.0);
+        assertEquals(/* expected */ 0.0, board.getTotalPoints(a, finalRace, AFTER), TOLERANCE);
+        assertEquals(/* expected */ 0.0, board.getNetPoints(a, AFTER), TOLERANCE);
+        assertEquals(/* expected */ 2.0, board.getNetPoints(b, AFTER), TOLERANCE);
+        assertOrder(board, a, b);
+        board.getScoreCorrection().correctScore(b, finalRace, /* correctedScore */ 1.0);
+        assertEquals(/* expected */ 1.0, board.getNetPoints(b, AFTER), TOLERANCE);
+        assertOrder(board, a, b);
+        board.getScoreCorrection().uncorrectScore(a, finalRace);
+        assertNull(board.getTotalPoints(a, finalRace, AFTER));
+        assertEquals(/* expected */ 5.0, board.getNetPoints(a, AFTER), TOLERANCE);
+        assertOrder(board, b, a);
     }
 
     private int compareBetter(final Leaderboard board, final Competitor first, final Competitor second,
@@ -443,5 +528,14 @@ class ScoringSchemeInteractionTest extends LeaderboardScoringAndRankingTestBase 
 
     private void assertOrder(final Leaderboard board, final Competitor... expected) {
         assertEquals(Arrays.asList(expected), Util.asList(board.getCompetitorsFromBestToWorst(AFTER)));
+        final LeaderboardTotalRankComparator comparator = new LeaderboardTotalRankComparator(board, AFTER,
+                board.getScoringScheme(), /* nullScoresAreBetter */ false, board.getRaceColumns(), /* cache */ null);
+        // All ordered pairs must agree with this whole-field order, including self-comparison and reverse direction.
+        for (int i = 0; i < expected.length; i++) {
+            for (int j = 0; j < expected.length; j++) {
+                assertEquals(Integer.signum(i - j), Integer.signum(comparator.compare(expected[i], expected[j])),
+                        board.getName() + " / " + expected[i].getName() + " versus " + expected[j].getName());
+            }
+        }
     }
 }

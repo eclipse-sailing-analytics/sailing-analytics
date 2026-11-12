@@ -10,8 +10,8 @@ network or credentials.
 
 ## Scope and provenance
 
-54 JSON files represent 32 top-level boards plus 22 child boards: 1,127
-competitor rows and 16,562 cells. The 26 production-represented scoring types
+55 JSON files represent 33 top-level boards plus 22 child boards: 1,153
+competitor rows and 16,744 cells. The 26 production-represented scoring types
 are complemented by synthetic cases for `HIGH_POINT_WINNER_GETS_EIGHT` and
 `HIGH_POINT_BY_WINS_TIES_LASTLY_BROKEN_BY_OTHER_LEADERBOARD`, covering all 28
 current types. This is behavioral regression coverage, not proof of every
@@ -36,6 +36,8 @@ overall cells are overridden. Shared competitor identities are retained.
 Parent suppression is inferred from child IDs missing from the captured
 parent field, as labelled in the fixture. Every child and parent is checked
 with both forward and reverse competitor insertion order.
+Absent expected net scores are explicitly asserted as null, covering 2,839
+cells; they are not skipped or treated as zero.
 
 Raw finish-rank conversion, penalties, race-log overrides, redress and
 time-dependent scores are exercised separately by the interaction tests
@@ -64,6 +66,36 @@ under `flexible-fixtures-20261112/` in the audit archive, with request/time/SHA-
 provenance. Fresh GWT decoding confirmed the earlier metadata. The fourth candidate,
 Kiel 2012 2.4mR, has 350 of 360 numeric cells: Cermak is entirely unscored. Its
 capture is retained; the three hole-free boards above were selected for these tests.
+
+## One-stays-one weighting and targeted interactions
+
+`youth2025-windsurf-women` preserves the complete Youth Worlds 2025 Female
+Windsurfer board (26 × 7). R3–R5 use factor 2 with `oneAlwaysStaysOne=true`:
+unweighted 1, 2 and 4 become 1, 3 and 7. Leaderboard discard thresholds are
+`[3,8,16]`; a fresh `getRegattaByName` capture independently confirms that no
+series overrides them. The empty Slalom2 series retains its true flag too.
+Raw replies and decoder provenance are in `one-stays-one-20261112/`.
+
+The full replay checks all cells, discards, totals and rankings in both
+insertion directions. A focused test independently anchors unweighted and
+weighted values, winner Medea Falcioni's six-point total, and Martina Mantovani
+Borrás/Alba Klein Meghnagi's 36-point tie with different discards. This retains
+the current A8 weighting behavior, as does the 49erFX characterization below.
+Fixture inversion uses captured flags rather than the reconstructed model's
+flags so that input and output mistakes cannot compensate for each other.
+
+Interaction tests additionally cover:
+
+- Two sailed wins, or a carry win plus one sailed win, overriding a worse
+  points sum (10 versus 7), with both carry-flag settings. Ordinary LowPoint
+  controls use identical factor-1 Medal columns and select the lower total.
+- A=(Q2,F1=3,F2=3) versus B=(Q3,F1=1,F2=4), with no two-win champion:
+  flagged Q selects A by carry score; unflagged Q selects B through A8.
+- Null Final scores retaining Qualification totals, a valid zero triggering
+  the reset, and removal of that correction restoring the previous total.
+- Every ordered competitor pair agreeing with each asserted small-field
+  display order, including self-comparisons and reverse comparisons. Sporting
+  equality remains tested separately from display order.
 
 ## Important interpretations
 

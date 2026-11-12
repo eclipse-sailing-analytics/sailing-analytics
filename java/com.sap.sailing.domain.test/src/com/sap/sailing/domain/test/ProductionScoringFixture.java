@@ -55,6 +55,7 @@ final class ProductionScoringFixture {
     final Map<String, Competitor> competitors = new LinkedHashMap<>();
     final List<ProductionScoringFixture> children = new ArrayList<>();
     private final Map<String, Double> factors = new LinkedHashMap<>();
+    private final Map<String, Double> offsets = new LinkedHashMap<>();
 
     ProductionScoringFixture(final String resource, final boolean reverseInsertionOrder) throws Exception {
         this(resource, reverseInsertionOrder, new LinkedHashMap<>());
@@ -69,6 +70,7 @@ final class ProductionScoringFixture {
         for (final JSONObject definition : objects(data, "columns")) {
             final RaceColumn column = leaderboard.getRaceColumnByName((String) definition.get("name"));
             factors.put(column.getName(), ((Number) definition.get("factor")).doubleValue());
+            offsets.put(column.getName(), (boolean) definition.get("oneAlwaysStaysOne") ? 1.0 : 0.0);
             final Number explicitFactor = (Number) definition.get("explicitFactor");
             if (explicitFactor != null) {
                 column.setFactor(explicitFactor.doubleValue());
@@ -156,6 +158,12 @@ final class ProductionScoringFixture {
         result.setStartsWithZeroScore((boolean) definition.get("reset"));
         result.setFirstColumnIsNonDiscardableCarryForward((boolean) definition.get("carry"));
         result.setSplitFleetContiguousScoring((boolean) definition.get("contiguous"));
+        if (definition.containsKey("crossFleetMergedRanking")) {
+            result.setCrossFleetMergedRanking((boolean) definition.get("crossFleetMergedRanking"));
+        }
+        if (definition.containsKey("oneAlwaysStaysOne")) {
+            result.setOneAlwaysStaysOne((boolean) definition.get("oneAlwaysStaysOne"));
+        }
         final Number maximumDiscards = (Number) definition.get("maximumDiscards");
         if (maximumDiscards != null) {
             result.setMaximumNumberOfDiscards(maximumDiscards.intValue());
@@ -190,7 +198,7 @@ final class ProductionScoringFixture {
             final Number points = (Number) cell.get("points");
             if (points != null && (!data.containsKey("children") || (boolean) cell.get("isCorrected"))) {
                 // Invert only the export's column weighting, independently of the scoring implementation.
-                final double offset = column.isOneAlwaysStaysOne() ? 1 : 0;
+                final double offset = offsets.get(column.getName());
                 final double unweightedPoints = (points.doubleValue() - offset) / factors.get(column.getName()) + offset;
                 leaderboard.getScoreCorrection().correctScore(competitor, column, unweightedPoints);
                 leaderboard.getScoreCorrection().setMaxPointsReason(competitor, column,

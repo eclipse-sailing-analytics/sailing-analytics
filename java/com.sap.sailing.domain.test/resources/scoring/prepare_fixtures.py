@@ -125,6 +125,35 @@ def main():
                                      "sha256": hashlib.sha256((flexible_folder / "metadata.json").read_bytes()).hexdigest()})
         fixture["configurationNotes"] = "Complete flexible leaderboard; column flags, default fleet and discard thresholds decoded from the captured SailingService.getLeaderboard reply. Empty fleet cells retain score corrections without race-log membership."
         write(destination, capture["identifier"], fixture)
+    scaling_folder = audit / "one-stays-one-20261112"
+    series_metadata = json.loads((scaling_folder / "series-metadata.json").read_text())
+    for capture in json.loads((scaling_folder / "captures.json").read_text()):
+        if capture["identifier"] != "youth2025-windsurf-women":
+            continue
+        for key in ("results", "configuration", "series"):
+            assert hashlib.sha256((scaling_folder / capture[key + "File"]).read_bytes()).hexdigest() == capture[key + "Request"]["sha256"]
+        group = next(g for g in groups if g["base"] == capture["base"] and any(m["name"] == capture["name"] for m in g["metadata"]))
+        metadata = next(m for m in group["metadata"] if m["name"] == capture["name"])
+        fixture = extract({"snapshot": json.loads((scaling_folder / capture["resultsFile"]).read_text()), "request": capture["resultsRequest"]},
+                          {"configuration": json.loads((scaling_folder / capture["configurationFile"]).read_text()), "request": capture["configurationRequest"]},
+                          metadata, group)
+        decoded = next(m for m in series_metadata if m["identifier"] == capture["identifier"])
+        for series in fixture["series"]:
+            captured = next(s for s in decoded["series"] if s["name"] == series["name"])
+            for key in ("carry", "contiguous", "parallel", "medal", "maximumDiscards", "reset"):
+                assert series[key] == captured[key], (series["name"], key)
+            for column in fixture["columns"]:
+                if column["name"] in series["columns"]:
+                    assert column["oneAlwaysStaysOne"] == captured["oneAlwaysStaysOne"]
+            series["oneAlwaysStaysOne"] = captured["oneAlwaysStaysOne"]
+            series["crossFleetMergedRanking"] = captured["crossFleetMergedRanking"]
+            if captured["discardThresholds"] is not None:
+                series["discardThresholds"] = captured["discardThresholds"]
+        fixture["provenance"]["seriesConfiguration"] = capture["seriesRequest"]
+        fixture["provenance"]["seriesDecoder"] = {"source": "one-stays-one-20261112/series-metadata.json",
+                "sha256": hashlib.sha256((scaling_folder / "series-metadata.json").read_bytes()).hexdigest()}
+        fixture["configurationNotes"] = "Complete 26-by-7 board. GWT getRegattaByName independently confirms oneAlwaysStaysOne and absent series-local discard rules; leaderboard thresholds are [3,8,16]. R3-R5 use factor 2 with offset 1. Empty Slalom2 retains its true flag."
+        write(destination, capture["identifier"], fixture)
 
 
 def extract(snapshot, config, metadata, group):
