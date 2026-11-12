@@ -14,18 +14,26 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import org.json.simple.JSONObject;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
 
 import com.sap.sailing.domain.base.Competitor;
 import com.sap.sailing.domain.base.RaceColumn;
+import com.sap.sailing.domain.base.impl.RaceColumnInSeriesImpl;
 import com.sap.sailing.domain.leaderboard.Leaderboard;
 import com.sap.sse.common.Util;
 import com.sap.sse.common.Util.Pair;
 
 class ProductionScoringReplayTest {
     private static final double TOLERANCE = 0.00000001;
+
+    @BeforeAll
+    static void requireEnabledJavaAssertions() {
+        assertTrue(RaceColumnInSeriesImpl.class.desiredAssertionStatus(),
+                "Run scoring regression tests with JVM assertions enabled (-ea)");
+    }
 
     @TestFactory
     Stream<DynamicTest> productionReplays() {

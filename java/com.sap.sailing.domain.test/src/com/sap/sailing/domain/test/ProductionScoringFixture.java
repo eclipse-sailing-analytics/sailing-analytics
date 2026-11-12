@@ -17,6 +17,7 @@ import org.json.simple.parser.ParseException;
 
 import com.sap.sailing.domain.base.Boat;
 import com.sap.sailing.domain.base.Competitor;
+import com.sap.sailing.domain.base.CompetitorWithBoat;
 import com.sap.sailing.domain.base.DomainFactory;
 import com.sap.sailing.domain.base.Fleet;
 import com.sap.sailing.domain.base.RaceColumn;
@@ -170,7 +171,11 @@ final class ProductionScoringFixture {
                     throw new IllegalArgumentException("Unknown fleet " + fleetName + " in " + column.getName());
                 }
                 column.enableCompetitorRegistrationOnRaceLog(fleet);
-                column.registerCompetitor(competitor, boat, fleet);
+                if ((boolean) data.get("canBoatsOfCompetitorsChangePerRace")) {
+                    column.registerCompetitor(competitor, boat, fleet);
+                } else {
+                    column.registerCompetitor((CompetitorWithBoat) competitor, fleet);
+                }
             }
             final Number points = (Number) cell.get("points");
             if (points != null && (!data.containsKey("children") || (boolean) cell.get("isCorrected"))) {

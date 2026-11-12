@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
@@ -29,6 +30,7 @@ import com.sap.sailing.domain.base.RaceColumn;
 import com.sap.sailing.domain.base.RaceColumnInSeries;
 import com.sap.sailing.domain.base.Regatta;
 import com.sap.sailing.domain.base.Series;
+import com.sap.sailing.domain.base.impl.RaceColumnInSeriesImpl;
 import com.sap.sailing.domain.common.MaxPointsReason;
 import com.sap.sailing.domain.common.ScoringSchemeType;
 import com.sap.sailing.domain.leaderboard.FlexibleLeaderboard;
@@ -50,6 +52,12 @@ class ScoringSchemeInteractionTest extends LeaderboardScoringAndRankingTestBase 
     private static final TimePoint START = new MillisecondsTimePoint(/* millis */ 1000);
     private static final TimePoint AFTER = new MillisecondsTimePoint(/* millis */ 2000);
     private static final double TOLERANCE = 0.00000001;
+
+    @BeforeAll
+    static void requireEnabledJavaAssertions() {
+        assertTrue(RaceColumnInSeriesImpl.class.desiredAssertionStatus(),
+                "Run scoring regression tests with JVM assertions enabled (-ea)");
+    }
 
     @TestFactory
     Stream<DynamicTest> fixedEightDoesNotInterpolateIncompleteFleets() {

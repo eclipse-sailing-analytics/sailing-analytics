@@ -2,7 +2,11 @@
 
 Run `com.sap.sailing.domain.test.ProductionScoringReplayTest` and
 `com.sap.sailing.domain.test.ScoringSchemeInteractionTest` as JUnit tests in
-`com.sap.sailing.domain.test`. Tests require no network or credentials.
+`com.sap.sailing.domain.test`, with `-ea` in the launch configuration's VM
+arguments. Both suites check that Java assertions in the domain model are
+enabled. When using Eclipse MCP, pass a saved launch configuration with
+`-ea` as `launcherName`; generated launches may omit it. Tests require no
+network or credentials.
 
 ## Scope and provenance
 
