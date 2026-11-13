@@ -154,6 +154,33 @@ def main():
                 "sha256": hashlib.sha256((scaling_folder / "series-metadata.json").read_bytes()).hexdigest()}
         fixture["configurationNotes"] = "Complete 26-by-7 board. GWT getRegattaByName independently confirms oneAlwaysStaysOne and absent series-local discard rules; leaderboard thresholds are [3,8,16]. R3-R5 use factor 2 with offset 1. Empty Slalom2 retains its true flag."
         write(destination, capture["identifier"], fixture)
+    corrected_folder = audit.parent / "followup-20261113/corrected-by-user"
+    for identifier, stem in (("49erfx-2013-petit", "49erfx-petit"), ("tonsberg-2024-elite", "tonsberg")):
+        captured = {}
+        for key, suffix in (("results", "rest"), ("configuration", "regatta")):
+            path = corrected_folder / (stem + "-" + suffix + ".json")
+            request = json.loads(path.with_suffix(".json.meta.json").read_text())
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == request["sha256"]
+            captured[key] = json.loads(path.read_text())
+            captured[key + "Request"] = request
+        name = captured["results"]["name"]
+        group = next(g for g in groups if g["base"] == "https://sapsailing.com" and any(m["name"] == name for m in g["metadata"]))
+        metadata = next(m for m in group["metadata"] if m["name"] == name)
+        assert captured["configuration"]["name"] == name
+        assert captured["configuration"]["scoringSystem"] == metadata["scoringScheme"]
+        assert captured["results"]["columnNames"] == [c["name"] for c in metadata["columns"]]
+        fixture = extract({"snapshot": captured["results"], "request": captured["resultsRequest"]},
+                          {"configuration": captured["configuration"], "request": captured["configurationRequest"]},
+                          metadata, group)
+        fixture["configurationNotes"] = "Fresh results and regatta configuration after user corrections on 2026-11-13; column factors and leaderboard discard thresholds retain the separately captured central GWT metadata."
+        if identifier == "49erfx-2013-petit":
+            fixture["provenance"]["officialResults"] = json.loads((corrected_folder / "49erfx-results.pdf.meta.json").read_text())
+            fixture["configurationNotes"] += " All 36 cells, nine totals and stage ranks agree with the official Petit Final PDF (Adv maps to 1; championship places 10-17 map to 2-9). M0 remains unflagged."
+        else:
+            final = next(s for s in fixture["series"] if s["name"] == "Final")
+            assert final["carry"] and final["columns"] == ["Q", "Final"]
+            fixture["configurationNotes"] += " Final Q is now carry-flagged in the captured regatta; Oslofjorden precedes Arendal on eight points under June SI 20.9. Complete 15-competitor board, including non-finalists."
+        write(destination, identifier, fixture)
 
 
 def extract(snapshot, config, metadata, group):
