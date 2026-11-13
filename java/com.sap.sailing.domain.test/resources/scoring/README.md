@@ -10,8 +10,8 @@ network or credentials.
 
 ## Scope and provenance
 
-55 JSON files represent 33 top-level boards plus 22 child boards: 1,153
-competitor rows and 16,744 cells. The 26 production-represented scoring types
+57 JSON files represent 35 top-level boards plus 22 child boards: 1,177
+competitor rows and 16,960 cells. The 26 production-represented scoring types
 are complemented by synthetic cases for `HIGH_POINT_WINNER_GETS_EIGHT` and
 `HIGH_POINT_BY_WINS_TIES_LASTLY_BROKEN_BY_OTHER_LEADERBOARD`, covering all 28
 current types. This is behavioral regression coverage, not proof of every
@@ -36,7 +36,7 @@ overall cells are overridden. Shared competitor identities are retained.
 Parent suppression is inferred from child IDs missing from the captured
 parent field, as labelled in the fixture. Every child and parent is checked
 with both forward and reverse competitor insertion order.
-Absent expected net scores are explicitly asserted as null, covering 2,839
+Absent expected net scores are explicitly asserted as null, covering 2,859
 cells; they are not skipped or treated as zero.
 
 Raw finish-rank conversion, penalties, race-log overrides, redress and
@@ -99,6 +99,18 @@ Interaction tests additionally cover:
 
 ## Important interpretations
 
+- `49erfx-2013-petit` and `tonsberg-2024-elite` use fresh results and regatta
+  configurations after the user's 2026-11-13 corrections. The former matches
+  all 36 score cells, nine totals and nine stage ranks in the official PDF.
+  The latter retains all 15 competitors and 180 cells, with Q carry-flagged;
+  Oslofjorden ranks fourth ahead of Arendal on eight points under June SI 20.9.
+  Raw responses, PDF, browser evidence and comparison are preserved under
+  `followup-20261113/corrected-by-user/` beside the audit directory. The extractor
+  uses fresh regatta flags and separately retained GWT factors/discard thresholds;
+  it preserves the earlier captures. Complete replays pass in both insertion orders.
+- NRV F9 in `scl2022-travemuende` retains the operations-entered 1.625 RDG award.
+  The user closed this historical case on 2026-11-13; it is not an implementation
+  bug and is not a target for score correction or further award investigation.
 - SCL Porto Cervo 2021 and Vilamoura 2022 use the NoR-compliant first-to-two
   scheme confirmed by the user's database corrections. Their captured old
   schemes remain in provenance. Q's flag is retained; direct Qualification

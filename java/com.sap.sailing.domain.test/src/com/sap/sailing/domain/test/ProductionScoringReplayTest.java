@@ -46,7 +46,8 @@ class ProductionScoringReplayTest {
     Stream<DynamicTest> productionReplays() {
         return Arrays.asList("kw2014-49er", "scl2021-porto-cervo", "scl2022-vilamoura", "scl2022-travemuende",
                 "team-racing-2026-final", "munich-2k", "kite-2024-qn-women", "windsurf-2024-qn-men",
-                "polish-2025-49erfx", "marstrand-2016-finals", "49erfx-2017", "automatic-rdg", "kite-2023-a82",
+                "polish-2025-49erfx", "marstrand-2016-finals", "49erfx-2017", "49erfx-2013-petit", "tonsberg-2024-elite",
+                "automatic-rdg", "kite-2023-a82",
                 "high_point", "high_point_first_gets_ten", "high_point_first_gets_ten_or_eight",
                 "high_point_first_gets_twelve_or_eight", "high_point_first_gets_twelve_or_eight_2017",
                 "high_point_winner_gets_eight_and_interpolation", "high_point_winner_gets_five", "high_point_winner_gets_six",
