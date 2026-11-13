@@ -117,9 +117,10 @@ Interaction tests additionally cover:
   scores (Q5: displayed 3, correction 6, A8 input 12). The focused test
   distinguishes this mechanism from the SI and labels weighted-input
   reversal as a counterfactual.
-- ESS2017's eight-point override still uses a literal twelve-point base
-  for penalties. The interaction test labels this legacy characterization,
-  not NoR compliance.
+- ESS2017 penalties use the same race-log-selected twelve/eight-point basis
+  as finish scores. With six finishers and an eight-point maximum, the last
+  finisher gets 3, DNS/DNF/RET get 2, and DSQ/OCS get 1. Interaction tests
+  cover all five reasons, both bases, column weighting and fixed-award precedence.
 - `HIGH_POINT_MATCH_RACING` retains its Appendix C11.1 TODO. The graph-based
   tied-cohort scheme is separately named `HIGH_POINT_FIRST_GETS_ONE`.
 

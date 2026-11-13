@@ -195,22 +195,41 @@ class ScoringSchemeInteractionTest extends LeaderboardScoringAndRankingTestBase 
         assertEquals(MaxPointsReason.SCA, board.getMaxPointsReason(a, redress, AFTER));
     }
 
-    @Test
-    void ess2017EightPointOverrideRetainsLegacyTwelvePointPenaltyBase() throws Exception {
-        final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 8);
-        final FlexibleLeaderboard board = flexible("ESS 2017", ScoringSchemeType.HIGH_POINT_FIRST_GETS_TWELVE_OR_EIGHT_2017);
-        final RaceColumn column = addRace(board, "R1", competitors);
-        final RaceLog log = column.getRaceLog(column.getFleets().iterator().next());
-        log.add(new RaceLogAdditionalScoringInformationEventImpl(START, AFTER,
-                new LogEventAuthorImpl("Fixture", /* priority */ 1), "eight", /* passId */ 0,
-                AdditionalScoringInformationType.MAX_POINTS_DECREASE_MAX_SCORE));
-        board.getScoreCorrection().setMaxPointsReason(competitors.get(/* index */ 6), column, MaxPointsReason.DNF);
-        board.getScoreCorrection().setMaxPointsReason(competitors.get(/* index */ 7), column, MaxPointsReason.DSQ);
-        assertEquals(/* expected */ 8.0, board.getTotalPoints(competitors.get(/* index */ 0), column, AFTER), TOLERANCE);
-        assertEquals(/* expected */ 3.0, board.getTotalPoints(competitors.get(/* index */ 5), column, AFTER), TOLERANCE);
-        // Characterization of the existing literal-12 penalty base, not a claim of compliance with the NoR.
-        assertEquals(/* expected */ 6.0, board.getTotalPoints(competitors.get(/* index */ 6), column, AFTER), TOLERANCE);
-        assertEquals(/* expected */ 5.0, board.getTotalPoints(competitors.get(/* index */ 7), column, AFTER), TOLERANCE);
+    @TestFactory
+    Stream<DynamicTest> ess2017PenaltiesUseTheSameRaceMaximumAsFinishers() {
+        return Stream.of(MaxPointsReason.DNS, MaxPointsReason.DNF, MaxPointsReason.RET,
+                MaxPointsReason.DSQ, MaxPointsReason.OCS).map((final MaxPointsReason reason) ->
+                DynamicTest.dynamicTest("ESS 2017 / " + reason, () -> {
+                    final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 8);
+                    final FlexibleLeaderboard board = flexible("ESS 2017", ScoringSchemeType.HIGH_POINT_FIRST_GETS_TWELVE_OR_EIGHT_2017);
+                    final RaceColumn normal = addRace(board, "Normal", competitors);
+                    final RaceColumn reduced = addRace(board, "Reduced", competitors);
+                    final RaceLog log = reduced.getRaceLog(reduced.getFleets().iterator().next());
+                    log.add(new RaceLogAdditionalScoringInformationEventImpl(START, AFTER,
+                            new LogEventAuthorImpl("Fixture", /* priority */ 1), "eight", /* passId */ 0,
+                            AdditionalScoringInformationType.MAX_POINTS_DECREASE_MAX_SCORE));
+                    final Competitor penalized = competitors.get(/* index */ 6);
+                    final Competitor disqualified = competitors.get(/* index */ 7);
+                    for (final RaceColumn column : Arrays.asList(normal, reduced)) {
+                        board.getScoreCorrection().setMaxPointsReason(penalized, column, reason);
+                        board.getScoreCorrection().setMaxPointsReason(disqualified, column, MaxPointsReason.DSQ);
+                        final double maximum = column == normal ? 12.0 : 8.0;
+                        final double lastFinisher = column == normal ? 7.0 : 3.0;
+                        final double penalty = reason == MaxPointsReason.DSQ || reason == MaxPointsReason.OCS
+                                ? lastFinisher - 2 : lastFinisher - 1;
+                        assertEquals(maximum, board.getTotalPoints(competitors.get(/* index */ 0), column, AFTER), TOLERANCE);
+                        assertEquals(lastFinisher, board.getTotalPoints(competitors.get(/* index */ 5), column, AFTER), TOLERANCE);
+                        assertEquals(penalty, board.getTotalPoints(penalized, column, AFTER), TOLERANCE);
+                        assertEquals(lastFinisher - 2, board.getTotalPoints(disqualified, column, AFTER), TOLERANCE);
+                        column.setFactor(/* factor */ 2.0);
+                        assertEquals(penalty * 2, board.getNetPoints(penalized, column, AFTER, Collections.emptySet()), TOLERANCE);
+                    }
+                    // A fixed award still takes precedence, while removing it restores the calculated penalty.
+                    board.getScoreCorrection().correctScore(disqualified, reduced, /* correctedScore */ 2.5);
+                    assertEquals(/* expected */ 2.5, board.getTotalPoints(disqualified, reduced, AFTER), TOLERANCE);
+                    board.getScoreCorrection().uncorrectScore(disqualified, reduced);
+                    assertEquals(/* expected */ 1.0, board.getTotalPoints(disqualified, reduced, AFTER), TOLERANCE);
+                }));
     }
 
     @Test
