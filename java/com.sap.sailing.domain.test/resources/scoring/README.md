@@ -79,13 +79,21 @@ Raw replies and decoder provenance are in `one-stays-one-20261112/`.
 The full replay checks all cells, discards, totals and rankings in both
 insertion directions. A focused test independently anchors unweighted and
 weighted values, winner Medea Falcioni's six-point total, and Martina Mantovani
-Borrás/Alba Klein Meghnagi's 36-point tie with different discards. This retains
-the current A8 weighting behavior, as does the 49erFX characterization below.
+Borrás/Alba Klein Meghnagi's 36-point tie with different discards. Correctly
+weighted A8.1 puts Klein Meghnagi fifth and Mantovani Borrás sixth, matching the
+official results. The captured ranks remain in the JSON; the replay explicitly
+asserts the repaired ranks for this pair and the generic 49erFX change below.
 Fixture inversion uses captured flags rather than the reconstructed model's
 flags so that input and output mistakes cannot compensate for each other.
 
 Interaction tests additionally cover:
 
+- A8.1 applies the column factor exactly once to corrected unweighted scores,
+  for both ordinary and Medal callers. Half/double factors distinguish weighted
+  comparison from original-score comparison and accidental second weighting.
+- One-stays-one weighting with existing discards and non-discardable Medal scores;
+  factor-zero scores are excluded from A8.1 before sorting, including missing and
+  explicit null entries under both null-ordering policies.
 - Two sailed wins, or a carry win plus one sailed win, overriding a worse
   points sum (10 versus 7), with both carry-flag settings. Ordinary LowPoint
   controls use identical factor-1 Medal columns and select the lower total.
@@ -124,11 +132,15 @@ Interaction tests additionally cover:
 - 49erFX Europeans 2017 SI 20.1.3/20.2.3 supply local discard thresholds;
   SI 20.4.1, page 6, specifies Fleet-Racing-only A8:
   <https://www.manage2sail.com/en-US/Home/DownloadDocument/91895f73-ec37-4e9d-8fc5-6c3b63d35248>.
-  ARG19's `1,4,7,10` beats ESP178jun's `1,4,8,14`. The legacy Java
-  all-series path also favors ARG, but inversely scales already-unweighted
-  scores (Q5: displayed 3, correction 6, A8 input 12). The focused test
-  distinguishes this mechanism from the SI and labels weighted-input
-  reversal as a counterfactual.
+  ARG19's `1,4,7,10` beats ESP178jun's `1,4,8,14`. Corrected generic all-series
+  A8.1 instead favors ESP: Q5's unweighted 6 is now compared as weighted 3,
+  rather than reciprocal 12. The complete replay explicitly expects ESP25/ARG26
+  under generic LowPoint, while retaining the captured official ARG25/ESP26.
+  This is not SI compliance. **Implementing SI20.4 is an accepted #6218 requirement:**
+  Qualification A8; Fleet-only A8.1/A8.2 with existing discards and no Qualification
+  fallback; Medal-only A8.2 without preceding Medal-sum/A8.1 preference. The new
+  variant follows completion of the scoring refactoring, including synthetic Medal ties because all ten
+  Medal totals in this fixture differ.
 - ESS2017 penalties use the same race-log-selected twelve/eight-point basis
   as finish scores. With six finishers and an eight-point maximum, the last
   finisher gets 3, DNS/DNF/RET get 2, and DSQ/OCS get 1. Interaction tests
