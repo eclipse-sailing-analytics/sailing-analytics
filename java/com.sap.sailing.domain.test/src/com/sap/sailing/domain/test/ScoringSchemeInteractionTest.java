@@ -341,6 +341,33 @@ class ScoringSchemeInteractionTest extends LeaderboardScoringAndRankingTestBase 
         assertEquals(Collections.singleton(first), discards.get(a));
     }
 
+    @Test
+    void halfWeightedRaceMustNotBeInverseWeightedAgainForA8() throws Exception {
+        final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 8);
+        final Competitor a = competitors.get(/* index */ 5);
+        final Competitor b = competitors.get(/* index */ 7);
+        final Competitor c = competitors.get(/* index */ 6);
+        final FlexibleLeaderboard board = flexible("Half-weighted A8", ScoringSchemeType.LOW_POINT);
+        final RaceColumn halfWeighted = addRace(board, "Q", competitors);
+        halfWeighted.setFactor(/* factor */ 0.5);
+        final List<Competitor> finalOrder = new ArrayList<>(competitors.subList(/* fromIndex */ 0, /* toIndex */ 5));
+        finalOrder.addAll(Arrays.asList(b, a, c));
+        final RaceColumn fullWeighted = addRace(board, "F", finalOrder);
+        // Real sixth/eighth and seventh/sixth finishes; no corrections, discards, carry or Medal criteria.
+        assertEquals(/* expected */ 6.0, board.getTotalPoints(a, halfWeighted, AFTER), TOLERANCE);
+        assertEquals(/* expected */ 8.0, board.getTotalPoints(b, halfWeighted, AFTER), TOLERANCE);
+        assertEquals(/* expected */ 7.0, board.getTotalPoints(a, fullWeighted, AFTER), TOLERANCE);
+        assertEquals(/* expected */ 6.0, board.getTotalPoints(b, fullWeighted, AFTER), TOLERANCE);
+        assertEquals(/* expected */ 3.0, board.getNetPoints(a, halfWeighted, AFTER, Collections.emptySet()), TOLERANCE);
+        assertEquals(/* expected */ 10.0, board.getNetPoints(a, AFTER), TOLERANCE);
+        assertEquals(/* expected */ 10.0, board.getNetPoints(b, AFTER), TOLERANCE);
+        // A8.1 favors A: sorted original scores (6,7) beat (6,8). Weighted scores (3,7) also beat (4,6).
+        // The current inverse scaling instead compares A=(7,12) with B=(6,16), wrongly preferring B.
+        final List<Competitor> expected = new ArrayList<>(competitors.subList(/* fromIndex */ 0, /* toIndex */ 5));
+        expected.addAll(Arrays.asList(a, b, c));
+        assertOrder(board, expected.toArray(new Competitor[0]));
+    }
+
     @TestFactory
     Stream<DynamicTest> firstToTwoBeatsLowerScoreSumsWithEitherCarryFlagAndLowPointDoesNot() {
         return Stream.of(ScoringSchemeType.LOW_POINT_FIRST_TO_WIN_TWO_RACES, ScoringSchemeType.LOW_POINT)
