@@ -362,10 +362,117 @@ class ScoringSchemeInteractionTest extends LeaderboardScoringAndRankingTestBase 
         assertEquals(/* expected */ 10.0, board.getNetPoints(a, AFTER), TOLERANCE);
         assertEquals(/* expected */ 10.0, board.getNetPoints(b, AFTER), TOLERANCE);
         // A8.1 favors A: sorted original scores (6,7) beat (6,8). Weighted scores (3,7) also beat (4,6).
-        // The current inverse scaling instead compares A=(7,12) with B=(6,16), wrongly preferring B.
+        // The former inverse scaling compared A=(7,12) with B=(6,16), wrongly preferring B.
         final List<Competitor> expected = new ArrayList<>(competitors.subList(/* fromIndex */ 0, /* toIndex */ 5));
         expected.addAll(Arrays.asList(a, b, c));
         assertOrder(board, expected.toArray(new Competitor[0]));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> a81WeightsOriginalScoresExactlyOnceForOrdinaryAndMedalRaces() {
+        return Stream.of(/* medalRace */ false, /* medalRace */ true).flatMap((final Boolean medalRace) ->
+                Stream.of(/* factor */ 0.5, /* factor */ 2.0).map((final Double factor) ->
+                        DynamicTest.dynamicTest("A8.1 / Medal=" + medalRace + " / factor=" + factor, () -> {
+            final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 2);
+            final Competitor a = competitors.get(/* index */ 0);
+            final Competitor b = competitors.get(/* index */ 1);
+            final FlexibleLeaderboard board = flexible("Weighted A8.1", ScoringSchemeType.LOW_POINT);
+            final RaceColumn first = board.addRace(new MockedTrackedRaceWithStartTimeAndRanks(START, competitors), "R1", medalRace);
+            final RaceColumn last = board.addRace(new MockedTrackedRaceWithStartTimeAndRanks(START, competitors), "R2", medalRace);
+            first.setFactor(factor);
+            last.setFactor(/* factor */ 1.0);
+            board.getScoreCorrection().correctScore(a, first, factor == 0.5 ? 4.0 : 1.0);
+            board.getScoreCorrection().correctScore(b, first, factor == 0.5 ? 8.0 : 2.0);
+            board.getScoreCorrection().correctScore(a, last, /* correctedScore */ 5.0);
+            board.getScoreCorrection().correctScore(b, last, /* correctedScore */ 3.0);
+            assertEquals(/* expected */ 7.0, board.getNetPoints(a, AFTER), TOLERANCE);
+            assertEquals(/* expected */ 7.0, board.getNetPoints(b, AFTER), TOLERANCE);
+            // In both cases weighted lists (2,5) beat (3,4), despite B's better last race.
+            // Half weighting must not compare original (4,5) against (3,8).
+            // Double weighting must not scale again to (4,5) against (3,8), including on the Medal path.
+            assertOrder(board, a, b);
+        })));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> a81PreservesOneWhenScalingWithDiscardsOrMedalScores() {
+        return Stream.of(/* medalRace */ false, /* medalRace */ true).map((final Boolean medalRace) ->
+                DynamicTest.dynamicTest("One stays one in A8.1 / Medal=" + medalRace, () -> {
+            final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 2);
+            final Competitor a = competitors.get(/* index */ 0);
+            final Competitor b = competitors.get(/* index */ 1);
+            final Regatta regatta = createRegatta(/* qualifying */ 3, new String[] { "Default" }, /* final */ 0,
+                    new String[] { "Default" }, /* medal */ true, /* numberOfMedalRaces */ 3, "One stays one in A8",
+                    DomainFactory.INSTANCE.getOrCreateBoatClass("Fixture", /* typicallyStartsUpwind */ true),
+                    DomainFactory.INSTANCE.createScoringScheme(ScoringSchemeType.LOW_POINT));
+            final RegattaLeaderboard board = createLeaderboard(regatta, new int[0]);
+            final String prefix = medalRace ? "M" : "Q";
+            final RaceColumn first = board.getRaceColumnByName(prefix + "1");
+            final RaceColumn last = board.getRaceColumnByName(prefix + "2");
+            final RaceColumn worst = board.getRaceColumnByName(prefix + "3");
+            final Series series = ((RaceColumnInSeries) first).getSeries();
+            series.setOneAlwaysStaysOne(true);
+            series.setResultDiscardingRule(new ThresholdBasedResultDiscardingRuleImpl(new int[] { 3 }));
+            for (final RaceColumn column : series.getRaceColumns()) {
+                column.setTrackedRace(column.getFleets().iterator().next(), new MockedTrackedRaceWithStartTimeAndRanks(START, competitors));
+                column.setFactor(/* factor */ 1.0);
+            }
+            first.setFactor(/* factor */ 2.0);
+            board.getScoreCorrection().correctScore(a, first, /* correctedScore */ 1.0);
+            board.getScoreCorrection().correctScore(b, first, /* correctedScore */ 2.0);
+            board.getScoreCorrection().correctScore(a, last, /* correctedScore */ 4.0);
+            board.getScoreCorrection().correctScore(b, last, /* correctedScore */ 2.0);
+            board.getScoreCorrection().correctScore(a, worst, /* correctedScore */ 9.0);
+            board.getScoreCorrection().correctScore(b, worst, /* correctedScore */ 9.0);
+            for (final Competitor competitor : competitors) {
+                assertEquals(medalRace ? Collections.emptySet() : Collections.singleton(worst),
+                        board.getResultDiscardingRule().getDiscardedRaceColumns(competitor, board,
+                                board.getRaceColumns(), AFTER, board.getScoringScheme()));
+                assertEquals(medalRace ? 14.0 : 5.0, board.getNetPoints(competitor, AFTER), TOLERANCE);
+            }
+            // Weighted (1,4) beats (2,3), with an extra 9 each for non-discardable Medals.
+            // Ordinary multiplication would tie (2,4) with (2,4), leaving B ahead on last-race countback.
+            assertOrder(board, a, b);
+        }));
+    }
+
+    @TestFactory
+    Stream<DynamicTest> a81ExcludesZeroFactorColumnsWithScoredMissingOrExplicitNullEntries() {
+        return Stream.of(/* nullScoresAreBetter */ false, /* nullScoresAreBetter */ true).map((final Boolean nullScoresAreBetter) ->
+                DynamicTest.dynamicTest("Zero-factor A8.1 / null better=" + nullScoresAreBetter, () -> {
+            final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 2);
+            final Competitor a = competitors.get(/* index */ 0);
+            final Competitor b = competitors.get(/* index */ 1);
+            final FlexibleLeaderboard board = flexible("Zero-factor A8.1", ScoringSchemeType.LOW_POINT);
+            final RaceColumn zero = addRace(board, "Ignored", Collections.singletonList(a));
+            zero.setFactor(/* factor */ 0.0);
+            final RaceColumn first = addRace(board, "R1", competitors);
+            final RaceColumn last = addRace(board, "R2", competitors);
+            board.getScoreCorrection().correctScore(a, first, /* correctedScore */ 2.0);
+            board.getScoreCorrection().correctScore(b, first, /* correctedScore */ 3.0);
+            board.getScoreCorrection().correctScore(a, last, /* correctedScore */ 5.0);
+            board.getScoreCorrection().correctScore(b, last, /* correctedScore */ 4.0);
+            assertNull(board.getTotalPoints(b, zero, AFTER));
+            assertOrder(board, a, b);
+            final Map<Competitor, Set<RaceColumn>> discards = new HashMap<>();
+            for (final Competitor competitor : competitors) {
+                discards.put(competitor, Collections.emptySet());
+            }
+            // Make the counting scores identical: zero-factor participation must not break this sporting tie.
+            board.getScoreCorrection().correctScore(b, first, /* correctedScore */ 2.0);
+            board.getScoreCorrection().correctScore(b, last, /* correctedScore */ 5.0);
+            assertEquals(/* expected */ 0, compareBetter(board, a, b, board.getRaceColumns(), discards));
+            assertEquals(/* expected */ 0, compareBetter(board, b, a, board.getRaceColumns(), discards));
+            final List<Pair<RaceColumn, Double>> aScores = scores(board, a, board.getRaceColumns(), AFTER);
+            final List<Pair<RaceColumn, Double>> bScores = scores(board, b, board.getRaceColumns(), AFTER);
+            bScores.add(/* index */ 0, new Pair<>(zero, /* b */ null));
+            assertEquals(/* expected */ 0, board.getScoringScheme().compareByBetterScore(a, aScores, b, bScores,
+                    board.getRaceColumns(), nullScoresAreBetter, AFTER, board, discards,
+                    (final Competitor competitor, final RaceColumn column) -> board.getTotalPoints(competitor, column, AFTER), /* cache */ null));
+            assertEquals(/* expected */ 0, board.getScoringScheme().compareByBetterScore(b, bScores, a, aScores,
+                    board.getRaceColumns(), nullScoresAreBetter, AFTER, board, discards,
+                    (final Competitor competitor, final RaceColumn column) -> board.getTotalPoints(competitor, column, AFTER), /* cache */ null));
+        }));
     }
 
     @TestFactory
