@@ -67,6 +67,12 @@ class LeaderboardTotalRankComparatorContractTest extends LeaderboardScoringAndRa
         }
     }
 
+    /**
+     * Supplied race points must be read during construction and reused by every comparison without calling the supplier
+     * again. The protected compareByScoreSum() hook must honor the overridden getScoreComparator(), while competitor
+     * comparisons continue to use the scoring scheme's ordering. The constructor without a supplied-points function must
+     * obtain the actual leaderboard points.
+     */
     @Test
     void suppliedPointsAreEagerAndCachedWhileProtectedScoreHookRemainsSeparate() throws Exception {
         final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 2);
@@ -92,6 +98,12 @@ class LeaderboardTotalRankComparatorContractTest extends LeaderboardScoringAndRa
         assertTrue(ordinary.compare(competitors.get(/* index */ 0), competitors.get(/* index */ 1)) < 0);
     }
 
+    /**
+     * Construction must prepare race scores and discards from the supplied leaderboard without calling the overridden
+     * getLeaderboard() accessor. Comparisons must read carried points through that accessor, which this test redirects
+     * to a different leaderboard. Changing those carried points between comparisons must reverse the result while
+     * retaining the prepared race scores.
+     */
     @Test
     void comparisonUsesVirtualCarriedPointsWithoutReplacingCapturedScorePreparation() throws Exception {
         final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 2);
@@ -106,6 +118,11 @@ class LeaderboardTotalRankComparatorContractTest extends LeaderboardScoringAndRa
         assertTrue(comparator.compare(competitors.get(/* index */ 0), competitors.get(/* index */ 1)) < 0);
     }
 
+    /**
+     * Opening Series ranks must be calculated only when a scoring-scheme callback requests them, rather than during
+     * construction or every comparison. Repeated requests through one comparator must reuse the same rank map; a new
+     * comparator must perform its own calculation.
+     */
     @Test
     void openingRanksAreLazyAndReusedOnlyWithinOneComparator() throws Exception {
         final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 2);
@@ -150,6 +167,11 @@ class LeaderboardTotalRankComparatorContractTest extends LeaderboardScoringAndRa
         assertEquals(/* expected */ 2, openingComparators.get());
     }
 
+    /**
+     * When a column defines an authoritative order between the competitors' fleets, that order must decide the comparison
+     * before later columns or scoring-scheme comparison callbacks are consulted. Fleet membership must be read afresh for
+     * each pair comparison, so reassignment is reflected even when the same comparator is reused.
+     */
     @Test
     void authoritativeFleetOrderStopsColumnTraversalAndLaterSchemeCallbacks() {
         final List<Competitor> competitors = createCompetitors(/* numberOfCompetitors */ 2);
