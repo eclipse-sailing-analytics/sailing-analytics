@@ -175,8 +175,14 @@ public class DataEntryPO extends CellTableRowPO {
         };
     }
 
-    public void clickActionImage(String actionName) {
-        this.context.findElement(By.xpath(".//td/div/div[@name=\"" + actionName + "\"]/img")).click();
+    public void clickActionImage(final String actionName) {
+        clickWhenInteractable(() -> {
+            final WebElement image = this.context.findElement(By.xpath(".//td/div/div[@name=\"" + actionName + "\"]/img"));
+            // Center the icon away from clipping edges of nested tab panels before checking its click point.
+            // Re-fetch and scroll on each poll because GWT may replace the action image while updating the row.
+            scrollToCenter(image);
+            return image;
+        });
     }
 
     public boolean hasActionImage(final String actionName) {
