@@ -69,28 +69,46 @@ public abstract class TrackedRegattaImpl implements TrackedRegatta {
      * that newly added listeners only receive events after the initial {@link TrackedRace} instances are delivered to
      * this listener.</li>
      * <li>Firing events for the already existing {@link TrackedRace} instances when adding a new listener (see
-     * {@link #addRaceListener(RaceListener)}). This ensures that all events are correctly fired to this listener that
-     * are triggered after the listener was added while suppressing inconsistent events before/while the initial
-     * {@link TrackedRace} instances are delivered to this listener.</li>
+     * {@link #addRaceListener(RaceListener, Optional, boolean)}). This ensures that all events are correctly fired to
+     * this listener that are triggered after the listener was added while suppressing inconsistent events before/while
+     * the initial {@link TrackedRace} instances are delivered to this listener.</li>
      * <li>Completing the future returned by {@link #removeRaceListener(RaceListener)} to ensure that the receiver gets
      * to know when it is guaranteed that no more event will be fired to the listener.
      * </ul>
+     *
+     * <p>Concurrency contract: this is a {@link ConcurrentHashMap} and no dedicated lock guards it. Instead, the
+     * required serialization comes from {@link #trackedRacesLock}:
+     * <ul>
+     * <li>{@link #enqueEvent} is only ever called from {@link #addTrackedRace} and {@link #removeTrackedRace}, both of
+     * which hold {@link #trackedRacesLock} for write while calling it. During that write region, no thread can be
+     * inside {@link #addRaceListener} or {@link #removeRaceListener}, both of which need
+     * {@link #trackedRacesLock} for read at their entry (line {@code lockTrackedRacesForRead()}) -- read blocks on
+     * write. So the listener set is stable for the whole duration of a dispatch, without needing a dedicated
+     * {@code raceListenersLock}.</li>
+     * <li>{@link #addRaceListener} and {@link #removeRaceListener} do their own mutations through
+     * {@link ConcurrentHashMap#computeIfAbsent} / {@link ConcurrentHashMap#remove}, both of which are atomic per key
+     * on {@link ConcurrentHashMap}. Concurrent add/add or remove/remove for the same listener collapse safely; for
+     * different listeners the map's own synchronization handles it.</li>
+     * <li>Iterating this map from {@link #enqueEvent} uses {@link ConcurrentHashMap#forEach}, which is weakly
+     * consistent; combined with the outer {@link #trackedRacesLock} write hold, iteration observes a stable snapshot
+     * of the listener set.</li>
+     * </ul>
+     *
+     * <p>A dedicated {@code raceListenersLock} used to exist here. It was dropped as part of issue #6241 because it
+     * caused a read-then-write self-deadlock: {@link #enqueEvent} would hold {@code raceListenersLock} for read and
+     * dispatch synchronously to listeners; if a listener's callback in turn called
+     * {@link #addRaceListener} (e.g. via a wind-estimation installation primitive that registers a race-removal
+     * listener), the {@code raceListenersLock} write acquisition would block on the same thread's own read hold, and
+     * {@link java.util.concurrent.locks.ReentrantReadWriteLock} does not allow upgrading.
      */
     private transient ConcurrentMap<RaceListener, RunnableExecutor> raceListeners;
-    
-    /**
-     * Guards access to {@link #raceListeners}.
-     */
-    private final NamedReentrantReadWriteLock raceListenersLock;
-    
+
     public TrackedRegattaImpl(Regatta regatta) {
         super();
         this.trackedRacesLock = new NamedReentrantReadWriteLock("trackeRaces lock for tracked regatta "+regatta.getName(), /* fair */ false);
         this.regatta = regatta;
         this.trackedRaces = new HashMap<RaceDefinition, TrackedRace>();
         this.raceListeners = new ConcurrentHashMap<>();
-        this.raceListenersLock = new NamedReentrantReadWriteLock(
-                "raceListeners lock for tracked regatta " + regatta.getName(), /* fair */ false);
     }
     
     private void readObject(ObjectInputStream ois) throws ClassNotFoundException, IOException {
@@ -157,13 +175,14 @@ public abstract class TrackedRegattaImpl implements TrackedRegatta {
      * enqueues an event for each currently known listeners.
      */
     protected void enqueEvent(Consumer<RaceListener> fireEventCallback, Optional<ThreadLocalTransporter> threadLocalTransporter) {
+        // No dedicated lock on raceListeners here: callers hold trackedRacesLock for write
+        // (via addTrackedRace / removeTrackedRace), which excludes addRaceListener / removeRaceListener
+        // (both of which need trackedRacesLock for read). See the raceListeners field's Javadoc.
         threadLocalTransporter.ifPresent(ThreadLocalTransporter::rememberThreadLocalStates);
-        LockUtil.executeWithReadLock(raceListenersLock, () -> {
-            raceListeners.forEach((listener, eventQueue) -> {
-                eventQueue.addWork(() -> {
-                    withBeforeAndAfterHandling(threadLocalTransporter, () -> {
-                        fireEventCallback.accept(listener);
-                    });
+        raceListeners.forEach((listener, eventQueue) -> {
+            eventQueue.addWork(() -> {
+                withBeforeAndAfterHandling(threadLocalTransporter, () -> {
+                    fireEventCallback.accept(listener);
                 });
             });
         });
@@ -260,15 +279,31 @@ public abstract class TrackedRegattaImpl implements TrackedRegatta {
     @Override
     public void addRaceListener(RaceListener listener, Optional<ThreadLocalTransporter> threadLocalTransporter, boolean synchronous) {
         assert synchronous == false || !threadLocalTransporter.isPresent(); // transporting thread locals doesn't make sense for synchronous listeners
+        // Hold trackedRacesLock for read so that no addTrackedRace / removeTrackedRace runs
+        // concurrently and races with our catch-up snapshot below. The tracked races cannot
+        // change while we hold this lock. Registration into raceListeners itself is atomic via
+        // ConcurrentHashMap.computeIfAbsent, which also collapses duplicate registrations of
+        // the same listener; no dedicated lock on raceListeners is needed.
         lockTrackedRacesForRead();
         try {
-            LockUtil.executeWithWriteLock(raceListenersLock, () -> {
-                // This prevents the creation of another WorkQueue if an already known listener is added a second time
-                raceListeners.computeIfAbsent(listener, listenerToAdd -> {
-                    final RunnableExecutor eventQueue = synchronous ? new SynchronousRunnableExecutor() : new AsynchronousRunnableExecutor();
-                    final List<TrackedRace> trackedRacesCopy = new ArrayList<>();
-                    Util.addAll(getTrackedRaces(), trackedRacesCopy);
-                    threadLocalTransporter.ifPresent(ThreadLocalTransporter::rememberThreadLocalStates);
+            // The mapping function only creates and registers the executor; it must NOT dispatch the
+            // catch-up raceAdded events, because for a synchronous executor that dispatch runs inline on
+            // this thread while computeIfAbsent still holds the reservation node for this key. A listener
+            // callback that in turn calls addRaceListener (e.g. runWhenDoneLoading registering a
+            // race-removal listener on this same regatta) would then re-enter computeIfAbsent on the same
+            // ConcurrentHashMap and self-deadlock on the reservation node (the CHM contract forbids the
+            // mapping function from modifying the map). We therefore capture the catch-up work in a holder
+            // and dispatch it AFTER computeIfAbsent returns, with the entry fully installed. The holder is
+            // populated only when a new entry was actually created, preserving the duplicate-registration
+            // collapse. The read lock on trackedRacesLock is still held during the dispatch, so ordering
+            // relative to enqueEvent is unchanged.
+            final Runnable[] catchUpHolder = new Runnable[1];
+            raceListeners.computeIfAbsent(listener, listenerToAdd -> {
+                final RunnableExecutor eventQueue = synchronous ? new SynchronousRunnableExecutor() : new AsynchronousRunnableExecutor();
+                final List<TrackedRace> trackedRacesCopy = new ArrayList<>();
+                Util.addAll(getTrackedRaces(), trackedRacesCopy);
+                threadLocalTransporter.ifPresent(ThreadLocalTransporter::rememberThreadLocalStates);
+                catchUpHolder[0] = () -> {
                     eventQueue.addWork(() -> {
                         withBeforeAndAfterHandling(threadLocalTransporter, () -> {
                             for (TrackedRace trackedRace : trackedRacesCopy) {
@@ -276,9 +311,12 @@ public abstract class TrackedRegattaImpl implements TrackedRegatta {
                             }
                         });
                     });
-                    return eventQueue;
-                });
+                };
+                return eventQueue;
             });
+            if (catchUpHolder[0] != null) {
+                catchUpHolder[0].run();
+            }
         } finally {
             unlockTrackedRacesAfterRead();
         }
@@ -287,10 +325,13 @@ public abstract class TrackedRegattaImpl implements TrackedRegatta {
     @Override
     public Future<Boolean> removeRaceListener(RaceListener listener) {
         final CompletableFuture<Boolean> result = new CompletableFuture<Boolean>();
+        // Hold trackedRacesLock for read so that no addTrackedRace / removeTrackedRace runs
+        // concurrently while we're removing the listener; that keeps enqueEvent from possibly
+        // enqueuing an event on a listener we're about to consider gone. The remove itself is
+        // atomic via ConcurrentHashMap.remove; no dedicated lock on raceListeners is needed.
         lockTrackedRacesForRead();
         try {
-            final RunnableExecutor eventQueue = LockUtil.executeWithWriteLockAndResult(raceListenersLock,
-                    () -> raceListeners.remove(listener));
+            final RunnableExecutor eventQueue = raceListeners.remove(listener);
             if (eventQueue != null) {
                 eventQueue.addWork(() -> {
                     result.complete(Boolean.TRUE);

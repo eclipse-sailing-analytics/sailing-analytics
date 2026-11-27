@@ -28,7 +28,9 @@ import com.sap.sse.common.Util.Pair;
  * Each of the {@link TimeRange}s is trimmed against the {@link TimeRangeResultCache cache} of returned and outstanding
  * requests for the respective {@code Key}. After having received the server responses for all time ranges required to
  * satisfy a {@link TimeRangeAsyncAction} the trimmed results are combined and the {@link TimeRangeAsyncCallback
- * callback} is invoked.
+ * callback} is invoked exactly once, either with the combined result or with a failure. This also applies when
+ * {@link TimeRangeAsyncAction#getTimeRanges()} is empty: the action is still executed, and a successful response
+ * completes the callback with {@link TimeRangeAsyncCallback#zipSubResults(Map) an empty combined result}.
  * <p>
  * 
  * @param <Result>
@@ -48,7 +50,7 @@ import com.sap.sse.common.Util.Pair;
  *
  * @author Tim Hessenmüller (D062243)
  */
-public class TimeRangeActionsExecutor<Result, SubResult, Key> {
+public class TimeRangeActionsExecutor<Result, SubResult, Key> extends AbstractActionsExecutor {
     /**
      * Callback called by {@link TimeRangeActionsExecutor#executor} upon receiving an answer from the server for a
      * potentially trimmed request. The compound {@code Result} is {@link TimeRangeAsyncCallback#unzipResult(Object)
@@ -72,22 +74,40 @@ public class TimeRangeActionsExecutor<Result, SubResult, Key> {
         }
 
         @Override
-        public void onSuccess(Result result) {
-            // from the compound result extract the potentially trimmed sub-results per key
-            final Map<Key, SubResult> unzippedResultMap = result != null ? callback.unzipResult(result) : Collections.emptyMap();
-            for (Key key : requestedTimeRangeMap.keySet()) {
-                final SubResult trimmedSubResultForKey = unzippedResultMap.get(key);
-                final TimeRangeResultCache<SubResult> cache = getSubResultCache(key);
-                cache.registerResult(action, trimmedSubResultForKey);
+        public void onSuccess(final Result result) {
+            try {
+                // From the compound result extract the potentially trimmed sub-results per key.
+                final Map<Key, SubResult> unzippedResultMap = result != null ? callback.unzipResult(result) : Collections.emptyMap();
+                for (final Key key : requestedTimeRangeMap.keySet()) {
+                    final SubResult trimmedSubResultForKey = unzippedResultMap.get(key);
+                    final TimeRangeResultCache<SubResult> cache = getSubResultCache(key);
+                    cache.registerResult(action, trimmedSubResultForKey);
+                }
+                // Empty requests have no per-key notification that could trigger completion.
+                if (requestedTimeRangeMap.isEmpty()) {
+                    notifySuccessIfAllSubResultsReady();
+                }
+            } finally {
+                numberOfPendingActions--;
+                notifyListeners();
             }
         }
 
         @Override
-        public void onFailure(Throwable caught) {
-            requestedTimeRangeMap.keySet().forEach(key -> getSubResultCache(key).registerFailure(action, caught));
+        public void onFailure(final Throwable caught) {
+            try {
+                requestedTimeRangeMap.keySet().forEach(key -> getSubResultCache(key).registerFailure(action, caught));
+                notifyFailure(caught);
+            } finally {
+                numberOfPendingActions--;
+                notifyListeners();
+            }
+        }
+
+        private void notifyFailure(final Throwable caught) {
             if (!callbackWasCalled) {
-                callback.onFailure(caught);
                 callbackWasCalled = true;
+                callback.onFailure(caught);
             }
         }
 
@@ -106,19 +126,24 @@ public class TimeRangeActionsExecutor<Result, SubResult, Key> {
          * @param key
          *            {@link Key} of the {@link TimeRangeResultCache#Request}
          */
-        public void onSubResultSuccess(Key key) {
+        public void onSubResultSuccess(final Key key) {
             if (!callbackWasCalled) {
                 subResultsReadySet.add(key);
-                if (subResultsReadySet.size() == requestedTimeRangeMap.size()) {
-                    final Map<Key, SubResult> unzippedResult = new HashMap<>(subResultsReadySet.size());
-                    for (Key k : subResultsReadySet) {
-                        final TimeRange requestedTimeRange = requestedTimeRangeMap.get(k);
-                        final List<Pair<TimeRange, SubResult>> subResults = getSubResultCache(k).getResults(action);
-                        unzippedResult.put(k, callback.joinSubResults(requestedTimeRange, subResults));
-                    }
-                    callback.onSuccess(callback.zipSubResults(unzippedResult));
-                    callbackWasCalled = true;
+                notifySuccessIfAllSubResultsReady();
+            }
+        }
+
+        private void notifySuccessIfAllSubResultsReady() {
+            if (!callbackWasCalled && subResultsReadySet.size() == requestedTimeRangeMap.size()) {
+                final Map<Key, SubResult> unzippedResult = new HashMap<>(subResultsReadySet.size());
+                for (final Key key : subResultsReadySet) {
+                    final TimeRange requestedTimeRange = requestedTimeRangeMap.get(key);
+                    final List<Pair<TimeRange, SubResult>> subResults = getSubResultCache(key).getResults(action);
+                    unzippedResult.put(key, callback.joinSubResults(requestedTimeRange, subResults));
                 }
+                final Result result = callback.zipSubResults(unzippedResult);
+                callbackWasCalled = true;
+                callback.onSuccess(result);
             }
         }
 
@@ -128,24 +153,20 @@ public class TimeRangeActionsExecutor<Result, SubResult, Key> {
          * @param caught
          *            {@link Throwable} that occurred
          */
-        public void onSubResultFailure(Key key, Throwable caught) {
+        public void onSubResultFailure(final Key key, final Throwable caught) {
             if (!callbackWasCalled) {
-                for (Key k : requestedTimeRangeMap.keySet()) {
+                for (final Key k : requestedTimeRangeMap.keySet()) {
                     if (!key.equals(k)) {
                         getSubResultCache(k).removeRequest(action);
                     }
                 }
-                callback.onFailure(caught);
-                callbackWasCalled = true;
+                notifyFailure(caught);
             }
         }
     }
 
-    private final Map<Key, TimeRangeResultCache<SubResult>> cacheMap = new HashMap<>(); //TODO Invalidation
-
-    public TimeRangeActionsExecutor() {
-    }
-
+    private final Map<Key, TimeRangeResultCache<SubResult>> cacheMap = new HashMap<>();
+    
     /**
      * Executes a {@link TimeRangeAsyncAction} and returns the results to a {@link TimeRangeAsyncCallback}. Calls
      * {@link #execute(TimeRangeAsyncAction, AsyncCallback, boolean)} with {@code forceTimeRange} set to {@code false},
@@ -202,6 +223,8 @@ public class TimeRangeActionsExecutor<Result, SubResult, Key> {
                 trimmedTimeRanges.put(subRequest.getKey(), potentiallyTrimmedTimeRange);
             }
         }
+        numberOfPendingActions++;
+        notifyListeners();
         action.execute(trimmedTimeRanges, execCallback);
     }
 

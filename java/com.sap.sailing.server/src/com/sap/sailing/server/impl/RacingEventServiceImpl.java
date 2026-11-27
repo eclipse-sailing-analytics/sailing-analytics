@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -139,11 +140,13 @@ import com.sap.sailing.domain.base.impl.TeamImpl;
 import com.sap.sailing.domain.common.BoatClassMasterdata;
 import com.sap.sailing.domain.common.CompetitorDescriptor;
 import com.sap.sailing.domain.common.CompetitorRegistrationType;
+import com.sap.sailing.domain.common.ConflictObjectType;
 import com.sap.sailing.domain.common.DataImportProgress;
 import com.sap.sailing.domain.common.DataImportSubProgress;
 import com.sap.sailing.domain.common.DetailType;
 import com.sap.sailing.domain.common.DeviceIdentifier;
 import com.sap.sailing.domain.common.LeaderboardType;
+import com.sap.sailing.domain.common.MasterDataImportObjectCreationCount;
 import com.sap.sailing.domain.common.MaxPointsReason;
 import com.sap.sailing.domain.common.NoWindException;
 import com.sap.sailing.domain.common.RaceIdentifier;
@@ -271,6 +274,8 @@ import com.sap.sailing.server.gateway.deserialization.impl.LeaderboardSearchResu
 import com.sap.sailing.server.gateway.deserialization.impl.TrackingConnectorInfoJsonDeserializer;
 import com.sap.sailing.server.gateway.deserialization.impl.VenueJsonDeserializer;
 import com.sap.sailing.server.gateway.interfaces.MasterDataImportConstants;
+import com.sap.sailing.server.gateway.interfaces.SailingServer;
+import com.sap.sailing.server.gateway.interfaces.SailingServerFactory;
 import com.sap.sailing.server.impl.preferences.model.CompetitorNotificationPreference;
 import com.sap.sailing.server.impl.preferences.model.CompetitorNotificationPreferences;
 import com.sap.sailing.server.interfaces.CourseAndMarkConfigurationFactory;
@@ -337,6 +342,7 @@ import com.sap.sse.branding.BrandingConfigurationService;
 import com.sap.sse.common.Bearing;
 import com.sap.sse.common.Distance;
 import com.sap.sse.common.Duration;
+import com.sap.sse.common.ObjectAlreadyExistsException;
 import com.sap.sse.common.PairingListCreationException;
 import com.sap.sse.common.Position;
 import com.sap.sse.common.Speed;
@@ -372,6 +378,7 @@ import com.sap.sse.security.shared.impl.UserGroup;
 import com.sap.sse.security.util.RemoteServerUtil;
 import com.sap.sse.shared.classloading.ClassLoaderRegistry;
 import com.sap.sse.shared.media.ImageDescriptor;
+import com.sap.sse.shared.media.MediaDescriptor;
 import com.sap.sse.shared.media.VideoDescriptor;
 import com.sap.sse.util.ClearStateTestSupport;
 import com.sap.sse.util.HttpUrlConnectionHelper;
@@ -596,11 +603,27 @@ Replicator {
 
     private final AtomicInteger numberOfTrackedRacesStillLoading;
 
+    /**
+     * Counts down when {@link #setPolarDataService(PolarDataService)} first receives a non-null
+     * polar-data service. Restoring tracked races (see {@link #restoreTrackedRaces()}) waits on
+     * this latch on a background thread so that every {@link TrackedRace} produced by restore
+     * has a non-null polar-data service already installed when it is added, per the invariant
+     * that a maneuver-based wind estimation should never be built for a race whose polar data
+     * hasn't at least started to become available. See bug6241 and
+     * {@link com.sap.sailing.windestimation.integration.WindEstimationFactoryServiceImpl#createIncrementalWindEstimationTrack}
+     * for the corresponding check on the other end.
+     */
+    private final CountDownLatch polarDataServiceArrived = new CountDownLatch(1);
+
+    private final boolean restoreTrackedRaces;
+
     private final ServiceTracker<ResultUrlRegistry, ResultUrlRegistry> resultUrlRegistryServiceTracker;
 
     private final ServiceTracker<ScoreCorrectionProvider, ScoreCorrectionProvider> scoreCorrectionProviderServiceTracker;
 
     private final ServiceTracker<CompetitorProvider, CompetitorProvider> competitorProviderServiceTracker;
+
+    private final ServiceTracker<SailingServerFactory, SailingServerFactory> sailingServerFactoryTracker;
 
     private transient final ConcurrentHashMap<Leaderboard, ScoreCorrectionListener> scoreCorrectionListenersByLeaderboard;
 
@@ -669,7 +692,7 @@ Replicator {
                 restoreTrackedRaces, /* securityServiceTracker */ null, /* sharedSailingDataTracker */ null,
                 /* replicationServiceTracker */ null, /* scoreCorrectionProviderServiceTracker */ null,
                 /* competitorProviderServiceTracker */ null, /* resultUrlRegistryServiceTracker */ null,
-                /* brandingConfigurationServiceTracker */ null);
+                /* brandingConfigurationServiceTracker */ null, /* sailingServerFactoryTracker */ null);
     }
 
     /**
@@ -701,7 +724,8 @@ Replicator {
             ServiceTracker<ScoreCorrectionProvider, ScoreCorrectionProvider> scoreCorrectionProviderServiceTracker,
             ServiceTracker<CompetitorProvider, CompetitorProvider> competitorProviderServiceTracker,
             ServiceTracker<ResultUrlRegistry, ResultUrlRegistry> resultUrlRegistryServiceTracker,
-            ServiceTracker<BrandingConfigurationService, BrandingConfigurationService> brandingConfigurationServiceTracker) {
+            ServiceTracker<BrandingConfigurationService, BrandingConfigurationService> brandingConfigurationServiceTracker,
+            ServiceTracker<SailingServerFactory, SailingServerFactory> sailingServerFactoryTracker) {
         this((final RaceLogAndTrackedRaceResolver raceLogResolver) -> {
             return new ConstructorParameters() {
                 private final MongoObjectFactory mongoObjectFactory = PersistenceFactory.INSTANCE
@@ -730,10 +754,11 @@ Replicator {
                     return competitorStore;
                 }
             };
-        }, MediaDBFactory.INSTANCE.getDefaultMediaDB(), null, sensorFixStore, serviceFinderFactory, trackedRegattaListener,
-                sailingNotificationService, trackedRaceStatisticsCache, restoreTrackedRaces,
+        }, MediaDBFactory.INSTANCE.getDefaultMediaDB(), null, sensorFixStore, serviceFinderFactory,
+                trackedRegattaListener, sailingNotificationService, trackedRaceStatisticsCache, restoreTrackedRaces,
                 securityServiceTracker, sharedSailingDataTracker, /* replicationServiceTracker */ null,
-                scoreCorrectionProviderServiceTracker, competitorProviderServiceTracker, resultUrlRegistryServiceTracker);
+                scoreCorrectionProviderServiceTracker,
+                competitorProviderServiceTracker, resultUrlRegistryServiceTracker, sailingServerFactoryTracker);
     }
 
     private RacingEventServiceImpl(final boolean clearPersistentCompetitorStore, WindStore windStore,
@@ -771,7 +796,7 @@ Replicator {
                 sailingNotificationService, /* trackedRaceStatisticsCache */ null, restoreTrackedRaces,
                 /* security service tracker */ null, /* sharedSailingDataTracker */ null, /* replicationServiceTracker */ null,
                 /* scoreCorrectionProviderServiceTracker */ null, /* competitorProviderServiceTracker */ null,
-                /* resultUrlRegistryServiceTracker */ null);
+                /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null);
     }
  
     public RacingEventServiceImpl(final DomainObjectFactory domainObjectFactory, MongoObjectFactory mongoObjectFactory,
@@ -803,7 +828,7 @@ Replicator {
                 /* trackedRaceStatisticsCache */ null, restoreTrackedRaces, /* security service tracker */ null,
                 /* sharedSailingDataTracker */ null, /* replicationServiceTracker */ null,
                 /* scoreCorrectionProviderServiceTracker */ null, /* competitorProviderServiceTracker */ null,
-                /* resultUrlRegistryServiceTracker */ null);
+                /* resultUrlRegistryServiceTracker */ null, /* sailingServerFactoryTracker */ null);
     }
 
     /**
@@ -838,16 +863,21 @@ Replicator {
             MediaDB mediaDb, final WindStore windStore, final SensorFixStore sensorFixStore,
             TypeBasedServiceFinderFactory serviceFinderFactory, TrackedRegattaListenerManager trackedRegattaListener,
             SailingNotificationService sailingNotificationService,
-            TrackedRaceStatisticsCache trackedRaceStatisticsCache, boolean restoreTrackedRaces,
+            TrackedRaceStatisticsCache trackedRaceStatisticsCache, final boolean restoreTrackedRaces,
             FullyInitializedReplicableTracker<SecurityService> securityServiceTracker,
             FullyInitializedReplicableTracker<SharedSailingData> sharedSailingDataTracker,
             ServiceTracker<ReplicationService, ReplicationService> replicationServiceTracker,
             ServiceTracker<ScoreCorrectionProvider, ScoreCorrectionProvider> scoreCorrectionProviderServiceTracker,
             ServiceTracker<CompetitorProvider, CompetitorProvider> competitorProviderServiceTracker,
-            ServiceTracker<ResultUrlRegistry, ResultUrlRegistry> resultUrlRegistryServiceTracker) {
+            ServiceTracker<ResultUrlRegistry, ResultUrlRegistry> resultUrlRegistryServiceTracker,
+            ServiceTracker<SailingServerFactory, SailingServerFactory> sailingServerFactoryTracker) {
         logger.info("Created " + this);
         this.eventResolverListeners = Collections.newSetFromMap(new ConcurrentHashMap<>());
         this.securityServiceTracker = securityServiceTracker;
+        this.restoreTrackedRaces = restoreTrackedRaces;
+        this.numberOfTrackedRacesToRestore = restoreTrackedRaces
+                ? Long.MAX_VALUE /* set to the real value in restoreTrackedRaces(), staying unhealthy until races loaded */
+                : 0;
         this.numberOfTrackedRacesRestored = new AtomicInteger();
         this.numberOfTrackedRacesRestoredDoneLoading = new AtomicInteger();
         this.numberOfTrackedRacesStillLoading = new AtomicInteger();
@@ -855,6 +885,7 @@ Replicator {
         this.scoreCorrectionProviderServiceTracker = scoreCorrectionProviderServiceTracker;
         this.competitorProviderServiceTracker = competitorProviderServiceTracker;
         this.scoreCorrectionListenersByLeaderboard = new ConcurrentHashMap<>();
+        this.sailingServerFactoryTracker = sailingServerFactoryTracker;
         this.connectivityParametersByRace = new ConcurrentHashMap<>();
         this.notificationService = sailingNotificationService;
         final ConstructorParameters constructorParameters = constructorParametersProvider.apply(this);
@@ -961,7 +992,28 @@ Replicator {
             }
         }
         if (restoreTrackedRaces) {
-            restoreTrackedRaces();
+            // bug6241: defer restoration to a background thread that awaits polarDataService
+            // arrival. This way every tracked race added by the restore has a non-null polar
+            // service from the start, matching the invariant that a maneuver-based wind
+            // estimator should only ever be built for a race whose polar service is available.
+            // The alternative -- restoring synchronously in the constructor -- would race
+            // with the OSGi service tracker that installs the PolarDataService, which opens
+            // AFTER RacingEventServiceImpl is constructed (see Activator.start ordering).
+            final Thread deferredRestoreThread = new Thread(() -> {
+                try {
+                    polarDataServiceArrived.await();
+                    restoreTrackedRaces();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.log(Level.WARNING,
+                            "Deferred restoreTrackedRaces was interrupted before PolarDataService arrived; no races restored",
+                            e);
+                } catch (Throwable e) {
+                    logger.log(Level.SEVERE, "Deferred restoreTrackedRaces failed", e);
+                }
+            }, "RacingEventServiceImpl-deferred-restoreTrackedRaces");
+            deferredRestoreThread.setDaemon(true);
+            deferredRestoreThread.start();
         } else {
             getMongoObjectFactory().removeAllConnectivityParametersForRacesToRestore();
         }
@@ -1142,6 +1194,15 @@ Replicator {
                 }
             }
         }).getNumberOfParametersToLoad();
+        // Enumeration complete: every race to restore has had its loading triggered (some may
+        // still be in LOADING state and some may never leave it; that's fine). Announce this to
+        // the polar data service, which if constructed in gated mode will now release any
+        // drain-callback waiters (see bug6241). Announcing to a non-gated instance is a harmless
+        // no-op. Since restoreTrackedRaces() only starts after the polarDataServiceArrived latch
+        // has counted down (see the deferred task in the constructor), and the polars bundle now
+        // registers its service exactly once and only after full initialization, polarDataService
+        // is guaranteed non-null at this point.
+        polarDataService.markLoadingOfAllRacesToRestoreStarted();
     }
 
     @Override
@@ -1353,23 +1414,29 @@ Replicator {
     }
 
     @Override
-    public void addLeaderboard(Leaderboard leaderboard) {
+    public void addLeaderboard(final Leaderboard leaderboard) {
         LockUtil.lockForWrite(leaderboardsByNameLock);
         try {
-            leaderboardsByName.put(leaderboard.getName(), leaderboard);
+            final Leaderboard existing = leaderboardsByName.get(leaderboard.getName());
+            if (existing != null && existing != leaderboard) {
+                throw new ObjectAlreadyExistsException(ConflictObjectType.LEADERBOARD, leaderboard.getName());
+            }
+            if (existing == null) {
+                leaderboardsByName.put(leaderboard.getName(), leaderboard);
+                // RaceColumns of RegattaLeaderboards are tracked via their Regatta.
+                if (leaderboard instanceof FlexibleLeaderboard) {
+                    onRegattaLikeAdded(((FlexibleLeaderboard) leaderboard).getRegattaLike());
+                    leaderboard.addRaceColumnListener(raceLogReplicator);
+                    leaderboard.addRaceColumnListener(raceLogScoringReplicator);
+                }
+                final LeaderboardScoreCorrectionNotifier scoreCorrectionListener = new LeaderboardScoreCorrectionNotifier(leaderboard);
+                scoreCorrectionListenersByLeaderboard.put(leaderboard, scoreCorrectionListener);
+                leaderboard.addScoreCorrectionListener(scoreCorrectionListener);
+                tryToRegisterMBeanForLeaderboard(leaderboard);
+            }
         } finally {
             LockUtil.unlockAfterWrite(leaderboardsByNameLock);
         }
-        // RaceColumns of RegattaLeaderboards are tracked via its Regatta!
-        if (leaderboard instanceof FlexibleLeaderboard) {
-            onRegattaLikeAdded(((FlexibleLeaderboard) leaderboard).getRegattaLike());
-            leaderboard.addRaceColumnListener(raceLogReplicator);
-            leaderboard.addRaceColumnListener(raceLogScoringReplicator);
-        }
-        final LeaderboardScoreCorrectionNotifier scoreCorrectionListener = new LeaderboardScoreCorrectionNotifier(leaderboard);
-        scoreCorrectionListenersByLeaderboard.put(leaderboard, scoreCorrectionListener);
-        leaderboard.addScoreCorrectionListener(scoreCorrectionListener);
-        tryToRegisterMBeanForLeaderboard(leaderboard);
     }
 
     private void tryToRegisterMBeanForLeaderboard(Leaderboard leaderboard) {
@@ -1838,6 +1905,16 @@ Replicator {
     }
 
     @Override
+    public Iterable<EventBase> getRemoteEvents(final String baseUrl, final String bearerTokenOrNull) throws Exception {
+        final SailingServerFactory factory = sailingServerFactoryTracker == null ? null : sailingServerFactoryTracker.getService();
+        if (factory == null) {
+            throw new IllegalStateException("SailingServerFactory not available");
+        }
+        final SailingServer sailingServer = factory.getSailingServer(new URL(baseUrl), bearerTokenOrNull);
+        return sailingServer.getEvents();
+    }
+
+    @Override
     public void removeRemoteSailingServerReference(String name) {
         logger.info("Subject "+SecurityUtils.getSubject().getPrincipal()+" requested removal of remote sailing server reference "+name);
         remoteSailingServerSet.remove(name);
@@ -2098,16 +2175,23 @@ Replicator {
                             raceTrackingHandler, /* markPassingRaceFingerprintRegistry */ this, /*maneuverRaceFingerprintRegistry*/ this);
                     assert tracker.getRegatta() == regatta;
                 }
+                final Set<Consumer<RaceTracker>> claimedCallbacks;
                 LockUtil.lockForWrite(raceTrackersByRegattaLock);
                 try {
                     raceTrackersByID.put(tracker.getID(), tracker);
                     final Set<RaceTracker> trackers = raceTrackersByRegatta.computeIfAbsent(tracker.getRegatta(),
                             r->Collections.newSetFromMap(new ConcurrentHashMap<>()));
                     trackers.add(tracker);
-                    notifyListenersForNewRaceTracker(tracker);
+                    // Claim the callbacks under the write lock, atomically with publishing the tracker, so that a
+                    // concurrent getRaceTrackerByRegattaAndRaceIdentifier(...) can never miss it. Invoking them,
+                    // however, is deferred until after the lock is released because a callback may block (e.g. tracker
+                    // startup waiting for race logs to attach) and holding the global lock across such a wait would
+                    // stall all other readers and writers of raceTrackersByRegatta.
+                    claimedCallbacks = removeListenersForNewRaceTracker(tracker);
                 } finally {
                     LockUtil.unlockAfterWrite(raceTrackersByRegattaLock);
                 }
+                invokeRaceTrackerCallbacks(tracker, claimedCallbacks);
                 // TODO we assume here that the regatta name is unique which necessitates adding the boat class name to
                 // it in RegattaImpl constructor
                 String regattaName = tracker.getRegatta().getName();
@@ -2159,6 +2243,40 @@ Replicator {
             return tracker.getRaceHandle();
         } finally {
             unlockRaceTrackersById(trackerID, raceTrackersByIdLock);
+        }
+    }
+
+    /**
+     * Claims (removes and returns) the callbacks registered for the {@code tracker}'s
+     * {@link RaceTracker#getRaceIdentifier() race identifier}. This must run under the
+     * {@link #raceTrackersByRegattaLock} write lock, atomically with the insertion of the tracker into
+     * {@link #raceTrackersByRegatta}, so that a concurrent {@link #getRaceTrackerByRegattaAndRaceIdentifier} (which
+     * under the read lock either finds the tracker or enqueues its callback) can never end up with a callback that is
+     * neither invoked directly nor picked up here. The returned callbacks are meant to be
+     * {@link #invokeRaceTrackerCallbacks(RaceTracker, Set) invoked afterwards}, outside the lock, because invoking them
+     * may block (e.g. tracker startup waiting for race logs to attach) and must not hold the global
+     * {@link #raceTrackersByRegattaLock} while doing so.
+     */
+    private Set<Consumer<RaceTracker>> removeListenersForNewRaceTracker(RaceTracker tracker) {
+        final RaceIdentifier raceIdentifier = tracker.getRaceIdentifier();
+        final Set<Consumer<RaceTracker>> result;
+        if (raceIdentifier != null) {
+            result = getRaceTrackerCallbacks().remove(raceIdentifier);
+        } else {
+            result = null;
+        }
+        return result;
+    }
+
+    /**
+     * Invokes the callbacks {@link #removeListenersForNewRaceTracker(RaceTracker) claimed} for a newly added
+     * {@code tracker}. Intended to be called <em>after</em> the {@link #raceTrackersByRegattaLock} write lock has been
+     * released, as a callback may block (e.g. waiting for race logs to attach) and holding the global lock across such
+     * a wait would stall all other readers and writers of {@link #raceTrackersByRegatta}.
+     */
+    private void invokeRaceTrackerCallbacks(RaceTracker tracker, Set<Consumer<RaceTracker>> callbacks) {
+        if (callbacks != null) {
+            callbacks.forEach((callback) -> callback.accept(tracker));
         }
     }
 
@@ -2328,6 +2446,15 @@ Replicator {
             if (polarFixCacheUpdater != null) {
                 trackedRace.removeListener(polarFixCacheUpdater);
             }
+            // bug6241: let the polar data service forget any wind-estimation-install callbacks it
+            // still has parked for this race (see PolarDataService.raceRemoved). Without this the
+            // parked callback -- which strongly captures trackedRace -- would pin the race and all
+            // of its tracks for the lifetime of the service if the race is removed before its
+            // polar loading completed. polarDataService may still be null if it has not been
+            // registered via its OSGi ServiceTracker yet.
+            if (polarDataService != null) {
+                polarDataService.raceRemoved(trackedRace);
+            }
             trackedRace.runSynchronizedOnStatus(()->{
                 if (!trackedRace.hasFinishedLoading()) {
                     numberOfTrackedRacesStillLoading.decrementAndGet();
@@ -2338,23 +2465,37 @@ Replicator {
         @Override
         public void raceAdded(TrackedRace trackedRace) {
             // replicate the addition of the tracked race:
-            CreateTrackedRace op = new CreateTrackedRace(trackedRace.getRaceIdentifier(), trackedRace.getWindStore(),
+            final CreateTrackedRace op = new CreateTrackedRace(trackedRace.getRaceIdentifier(), trackedRace.getWindStore(),
                     trackedRace.getDelayToLiveInMillis(), trackedRace.getMillisecondsOverWhichToAverageWind(),
                     trackedRace.getMillisecondsOverWhichToAverageSpeed(), trackedRace.getTrackingConnectorInfo());
             replicate(op);
             linkRaceToConfiguredLeaderboardColumns(trackedRace);
-            TrackedRaceReplicatorAndNotifier trackedRaceReplicator = new TrackedRaceReplicatorAndNotifier(trackedRace);
+            final TrackedRaceReplicatorAndNotifier trackedRaceReplicator = new TrackedRaceReplicatorAndNotifier(trackedRace);
             trackedRaceReplicators.put(trackedRace, trackedRaceReplicator);
-            trackedRace.addListener(trackedRaceReplicator, /* fire wind already loaded */true, /* notifyAboutGPSFixesAlreadyLoaded */ true);
-            PolarFixCacheUpdater polarFixCacheUpdater = new PolarFixCacheUpdater(trackedRace);
+            trackedRace.addListener(trackedRaceReplicator, /* fire wind already loaded */ true, /* notifyAboutGPSFixesAlreadyLoaded */ true);
+            // The PolarFixCacheUpdater's only responsibility is to feed newly-arriving
+            // competitor positions to the polar-data service and, on the first status
+            // transition past LOADING, to trigger ingestion of the race's loaded fixes into
+            // the polar-mining loading pipeline. Installation of the maneuver-based wind
+            // estimation is a separate concern handled by
+            // scheduleWindEstimationInstallation below and by setWindEstimationFactoryService
+            // if the factory arrives later.
+            final PolarFixCacheUpdater polarFixCacheUpdater = new PolarFixCacheUpdater(trackedRace);
             polarFixCacheUpdaters.put(trackedRace, polarFixCacheUpdater);
             trackedRace.addListener(polarFixCacheUpdater);
-            if (polarDataService != null) {
+            if (polarDataService != null) { // this shouldn't really be necessary after the bug6241 changes as we now
+                                            // require a valid PolarDataService prior to restoring/loading any races
                 trackedRace.setPolarDataService(polarDataService);
             }
+            // Schedule installation of the maneuver-based wind estimation on this race.
+            // The installation waits for (a) the race to reach a status strictly past
+            // LOADING (so that whatever loading was to happen has finished) and (b) the
+            // polar-data mining pipeline to have fully drained this race's loaded fixes.
+            // If the wind-factory service is not registered yet, the install is deferred to
+            // setWindEstimationFactoryService, which then iterates all existing races and
+            // schedules an install for each. See bug6241.
             if (windEstimationFactoryService != null) {
-                trackedRace.setWindEstimation(
-                        windEstimationFactoryService.createIncrementalWindEstimationTrack(trackedRace));
+                scheduleWindEstimationInstallation(trackedRace, windEstimationFactoryService);
             }
             numberOfTrackedRacesStillLoading.incrementAndGet();
             trackedRace.runWhenDoneLoading(()->numberOfTrackedRacesStillLoading.decrementAndGet());
@@ -2462,6 +2603,7 @@ Replicator {
     private class PolarFixCacheUpdater extends AbstractRaceChangeListener {
 
         private final TrackedRace race;
+        private boolean ingestionTriggered;
 
         public PolarFixCacheUpdater(TrackedRace race) {
             this.race = race;
@@ -2476,14 +2618,22 @@ Replicator {
 
         @Override
         public void statusChanged(TrackedRaceStatus newStatus, TrackedRaceStatus oldStatus) {
-            if (oldStatus.getStatus() == TrackedRaceStatusEnum.LOADING
-                    && newStatus.getStatus() != TrackedRaceStatusEnum.LOADING && newStatus.getStatus() != TrackedRaceStatusEnum.REMOVED) {
-                if (polarDataService != null) {
-                    polarDataService.raceFinishedLoading(race);
-                }
+            // Trigger ingestion of the race's loaded fixes into the polar-data mining loading
+            // pipeline exactly once, on the first transition to a status past LOADING. This
+            // fires both for the normal LOADING -> TRACKING/FINISHED path and for races that
+            // move directly from PREPARED to TRACKING (e.g., RaceLogRaceTracker-tracked races
+            // without loadable data); in the latter case the ingestion loop iterates over
+            // empty tracks and the pipeline drains immediately, but the "gate" inside
+            // PolarDataMiner still opens so any pending
+            // runWhenPolarLoadingFinishedFor(...) callbacks (e.g., from
+            // scheduleWindEstimationInstallation) can proceed. See bug6241.
+            if (!ingestionTriggered && newStatus.getStatus().getOrder() > TrackedRaceStatusEnum.LOADING.getOrder()
+                    && newStatus.getStatus() != TrackedRaceStatusEnum.REMOVED
+                    && polarDataService != null) {
+                ingestionTriggered = true;
+                polarDataService.raceFinishedLoading(race, /* callback */ null);
             }
         }
-
     }
 
     /**
@@ -3113,7 +3263,7 @@ Replicator {
     @Override
     public void removeRace(Regatta regatta, RaceDefinition race) throws MalformedURLException, IOException,
             InterruptedException {
-        logger.info("Removing the race " + race + "...");
+        logger.info("Removing the race " + regatta.getName()+ " / " + race + "...");
         final RaceTrackingConnectivityParameters connectivityParams = connectivityParametersByRace.remove(race);
         if (connectivityParams != null) {
             getMongoObjectFactory().removeConnectivityParametersForRaceToRestore(connectivityParams);
@@ -3391,56 +3541,73 @@ Replicator {
     }
 
     @Override
-    public LeaderboardGroup addLeaderboardGroup(UUID leaderboardGroupId, String groupName, String description, String displayName,
-            boolean displayGroupsInReverseOrder, List<String> leaderboardNames,
-            int[] overallLeaderboardDiscardThresholds, ScoringSchemeType overallLeaderboardScoringSchemeType) {
-        ArrayList<Leaderboard> leaderboards = new ArrayList<>();
-        for (String leaderboardName : leaderboardNames) {
-            Leaderboard leaderboard = leaderboardsByName.get(leaderboardName);
-            if (leaderboard == null) {
-                throw new IllegalArgumentException("No leaderboard with name " + leaderboardName + " found");
-            } else {
-                leaderboards.add(leaderboard);
-            }
-        }
-        LeaderboardGroup result = new LeaderboardGroupImpl(leaderboardGroupId, groupName, description, displayName,
-                displayGroupsInReverseOrder, leaderboards);
-        if (overallLeaderboardScoringSchemeType != null) {
-            // create overall leaderboard and its discards settings
-            addOverallLeaderboardToLeaderboardGroup(result,
-                    getBaseDomainFactory().createScoringScheme(overallLeaderboardScoringSchemeType),
-                    overallLeaderboardDiscardThresholds);
-        }
+    public LeaderboardGroup addLeaderboardGroup(final UUID leaderboardGroupId, final String groupName,
+            final String description, final String displayName, final boolean displayGroupsInReverseOrder,
+            final List<String> leaderboardNames, final int[] overallLeaderboardDiscardThresholds,
+            final ScoringSchemeType overallLeaderboardScoringSchemeType) {
+        final LeaderboardGroup result;
+        // Always acquire the group lock before the leaderboard lock for compound changes.
         LockUtil.lockForWrite(leaderboardGroupsByNameLock);
+        LockUtil.lockForWrite(leaderboardsByNameLock);
         try {
             if (leaderboardGroupsByName.containsKey(groupName)) {
-                throw new IllegalArgumentException("Leaderboard group with name " + groupName + " already exists");
+                throw new ObjectAlreadyExistsException(ConflictObjectType.LEADERBOARD_GROUP, groupName);
+            }
+            if (leaderboardGroupsByID.containsKey(leaderboardGroupId)) {
+                throw new ObjectAlreadyExistsException(ConflictObjectType.LEADERBOARD_GROUP, leaderboardGroupId.toString());
+            }
+            if (overallLeaderboardScoringSchemeType != null) {
+                checkLeaderboardNameAvailable(LeaderboardGroupMetaLeaderboard.getOverallLeaderboardName(groupName));
+            }
+            final List<Leaderboard> leaderboards = new ArrayList<>();
+            for (final String leaderboardName : leaderboardNames) {
+                final Leaderboard leaderboard = leaderboardsByName.get(leaderboardName);
+                if (leaderboard == null) {
+                    throw new IllegalArgumentException("No leaderboard with name " + leaderboardName + " found");
+                }
+                leaderboards.add(leaderboard);
+            }
+            result = new LeaderboardGroupImpl(leaderboardGroupId, groupName, description, displayName,
+                    displayGroupsInReverseOrder, leaderboards);
+            if (overallLeaderboardScoringSchemeType != null) {
+                addOverallLeaderboardToLeaderboardGroup(result,
+                        getBaseDomainFactory().createScoringScheme(overallLeaderboardScoringSchemeType),
+                        overallLeaderboardDiscardThresholds);
             }
             leaderboardGroupsByName.put(groupName, Collections.singleton(result));
             leaderboardGroupsByID.put(result.getId(), result);
+            mongoObjectFactory.storeLeaderboardGroup(result);
         } finally {
+            LockUtil.unlockAfterWrite(leaderboardsByNameLock);
             LockUtil.unlockAfterWrite(leaderboardGroupsByNameLock);
         }
-        mongoObjectFactory.storeLeaderboardGroup(result);
         return result;
     }
 
+    private void checkLeaderboardNameAvailable(final String leaderboardName) {
+        if (leaderboardsByName.containsKey(leaderboardName)) {
+            throw new ObjectAlreadyExistsException(ConflictObjectType.LEADERBOARD, leaderboardName);
+        }
+    }
+
     @Override
-    public void addLeaderboardGroupWithoutReplication(LeaderboardGroup leaderboardGroup) {
+    public void addLeaderboardGroupWithoutReplication(final LeaderboardGroup leaderboardGroup) {
         LockUtil.lockForWrite(leaderboardGroupsByNameLock);
+        LockUtil.lockForWrite(leaderboardsByNameLock);
         try {
             if (leaderboardGroupsByID.containsKey(leaderboardGroup.getId())) {
-                throw new IllegalArgumentException("Leaderboard group with ID " + leaderboardGroup.getId() + " already exists");
+                throw new ObjectAlreadyExistsException(ConflictObjectType.LEADERBOARD_GROUP, leaderboardGroup.getId().toString());
+            }
+            if (leaderboardGroup.hasOverallLeaderboard()) {
+                addLeaderboard(leaderboardGroup.getOverallLeaderboard());
             }
             leaderboardGroupsByName.put(leaderboardGroup.getName(), Collections.singleton(leaderboardGroup));
             leaderboardGroupsByID.put(leaderboardGroup.getId(), leaderboardGroup);
+            mongoObjectFactory.storeLeaderboardGroup(leaderboardGroup);
         } finally {
+            LockUtil.unlockAfterWrite(leaderboardsByNameLock);
             LockUtil.unlockAfterWrite(leaderboardGroupsByNameLock);
         }
-        if (leaderboardGroup.hasOverallLeaderboard()) {
-            addLeaderboard(leaderboardGroup.getOverallLeaderboard());
-        }
-        mongoObjectFactory.storeLeaderboardGroup(leaderboardGroup);
     }
 
     @Override
@@ -3487,7 +3654,7 @@ Replicator {
                 throw new IllegalArgumentException("No leaderboard group with ID " + leaderboardGroupId + " found");
             }
             if (leaderboardGroupsByName.containsKey(newName)) {
-                throw new IllegalArgumentException("Leaderboard group with name " + newName + " already exists");
+                throw new ObjectAlreadyExistsException(ConflictObjectType.LEADERBOARD_GROUP, newName);
             }
             leaderboardGroupsByName.remove(toRename.getName());
             toRename.setName(newName);
@@ -3499,15 +3666,35 @@ Replicator {
     }
 
     @Override
-    public void updateLeaderboardGroup(UUID leaderboardGroupId, String newName, String description, String displayName,
-            List<String> leaderboardNames, int[] overallLeaderboardDiscardThresholds,
-            ScoringSchemeType overallLeaderboardScoringSchemeType) {
-        final LeaderboardGroup group = getLeaderboardGroupByID(leaderboardGroupId);
-        if (group == null) {
-            throw new IllegalArgumentException("LeaderboardGroup with ID "+leaderboardGroupId+" not found");
+    public void updateLeaderboardGroup(final UUID leaderboardGroupId, final String newName, final String description,
+            final String displayName, final List<String> leaderboardNames, final int[] overallLeaderboardDiscardThresholds,
+            final ScoringSchemeType overallLeaderboardScoringSchemeType) {
+        LockUtil.lockForWrite(leaderboardGroupsByNameLock);
+        LockUtil.lockForWrite(leaderboardsByNameLock);
+        try {
+            final LeaderboardGroup group = getLeaderboardGroupByID(leaderboardGroupId);
+            if (group == null) {
+                throw new IllegalArgumentException("LeaderboardGroup with ID " + leaderboardGroupId + " not found");
+            }
+            if (!group.getName().equals(newName) && leaderboardGroupsByName.containsKey(newName)) {
+                throw new ObjectAlreadyExistsException(ConflictObjectType.LEADERBOARD_GROUP, newName);
+            }
+            if (!group.hasOverallLeaderboard() && overallLeaderboardScoringSchemeType != null) {
+                checkLeaderboardNameAvailable(LeaderboardGroupMetaLeaderboard.getOverallLeaderboardName(newName));
+            }
+            doUpdateLeaderboardGroup(group, newName, description, displayName, leaderboardNames,
+                    overallLeaderboardDiscardThresholds, overallLeaderboardScoringSchemeType);
+        } finally {
+            LockUtil.unlockAfterWrite(leaderboardsByNameLock);
+            LockUtil.unlockAfterWrite(leaderboardGroupsByNameLock);
         }
+    }
+
+    private void doUpdateLeaderboardGroup(final LeaderboardGroup group, final String newName, final String description,
+            final String displayName, final List<String> leaderboardNames, final int[] overallLeaderboardDiscardThresholds,
+            final ScoringSchemeType overallLeaderboardScoringSchemeType) {
         if (!group.getName().equals(newName)) {
-            renameLeaderboardGroup(leaderboardGroupId, newName);
+            renameLeaderboardGroup(group.getId(), newName);
         }
         if (!description.equals(group.getDescription())) {
             group.setDescriptiom(description);
@@ -3516,13 +3703,13 @@ Replicator {
             group.setDisplayName(displayName);
         }
         group.clearLeaderboards();
-        for (String leaderboardName : leaderboardNames) {
-            Leaderboard leaderboard = getLeaderboardByName(leaderboardName);
+        for (final String leaderboardName : leaderboardNames) {
+            final Leaderboard leaderboard = getLeaderboardByName(leaderboardName);
             if (leaderboard != null) {
                 group.addLeaderboard(leaderboard);
             }
         }
-        Leaderboard overallLeaderboard = group.getOverallLeaderboard();
+        final Leaderboard overallLeaderboard = group.getOverallLeaderboard();
         if (overallLeaderboard != null) {
             if (overallLeaderboardScoringSchemeType == null) {
                 group.setOverallLeaderboard(null);
@@ -3541,8 +3728,10 @@ Replicator {
         updateStoredLeaderboardGroup(group);
     }
 
-    private void addOverallLeaderboardToLeaderboardGroup(LeaderboardGroup leaderboardGroup,
-            ScoringScheme scoringScheme, int[] discardThresholds) {
+    private void addOverallLeaderboardToLeaderboardGroup(final LeaderboardGroup leaderboardGroup,
+            final ScoringScheme scoringScheme, final int[] discardThresholds) {
+        // The caller holds the leaderboard write lock, from validation through registration and persistence.
+        checkLeaderboardNameAvailable(LeaderboardGroupMetaLeaderboard.getOverallLeaderboardName(leaderboardGroup.getName()));
         final Leaderboard overallLeaderboard = new LeaderboardGroupMetaLeaderboard(leaderboardGroup, scoringScheme,
                 new ThresholdBasedResultDiscardingRuleImpl(discardThresholds));
         leaderboardGroup.setOverallLeaderboard(overallLeaderboard);
@@ -3947,6 +4136,37 @@ Replicator {
         // TODO consider use diffutils to compute diff between old and new leaderboard groups list and apply the patch
         // to keep changes minimial
         mongoObjectFactory.storeEvent(event);
+    }
+    
+    private <MD extends MediaDescriptor >void updateEventMediaHealth(UUID eventId, String mediaUrl, boolean missing, boolean missingMailNotificationSent, Function<Event, Iterable<MD>> mediaProvider) {
+        final Event event = eventsById.get(eventId);
+        if (event == null) {
+            throw new IllegalArgumentException("Sailing event with ID " + eventId + " does not exist.");
+        }
+        boolean mediumFound = false;
+        for (final MediaDescriptor medium : mediaProvider.apply(event)) {
+            if (medium.getURL() != null && mediaUrl.equals(medium.getURL().toString())) {
+                medium.setMissing(missing);
+                medium.setMissingMailNotificationSent(missingMailNotificationSent);
+                mediumFound = true;
+            }
+        }
+        if (mediumFound) {
+            mongoObjectFactory.storeEvent(event);
+        } else {
+            logger.warning("Could not update media health for URL " + mediaUrl + " because it is not attached to event "
+                    + event.getName());
+        }
+    }
+
+    @Override
+    public void updateEventImageHealth(UUID eventId, String imageUrl, boolean missing, boolean missingMailNotificationSent) {
+        updateEventMediaHealth(eventId, imageUrl, missing, missingMailNotificationSent, Event::getImages);
+    }
+
+    @Override
+    public void updateEventVideoHealth(UUID eventId, String videoUrl, boolean missing, boolean missingMailNotificationSent) {
+        updateEventMediaHealth(eventId, videoUrl, missing, missingMailNotificationSent, Event::getVideos);
     }
 
     @Override
@@ -4558,9 +4778,26 @@ Replicator {
     }
 
     @Override
+    public DataImportProgress createOrUpdateDataImportProgressWithReplication(UUID importOperationId,
+            double overallProgressPct, DataImportSubProgress subProgress, double subProgressPct,
+            final MasterDataImportObjectCreationCount result) {
+        // Create/Update locally, including the final result
+        final DataImportProgress progress = createOrUpdateDataImportProgressWithoutReplication(importOperationId,
+                overallProgressPct, subProgress, subProgressPct);
+        if (result != null) {
+            progress.setResult(result);
+        }
+        // Create/Update on replicas, carrying the same result so a client polling a replica flips getResult() at the
+        // same true completion point as the master (see bug6227)
+        replicate(new CreateOrUpdateDataImportProgress(importOperationId, overallProgressPct, subProgress,
+                subProgressPct, result));
+        return progress;
+    }
+
+    @Override
     public DataImportProgress createOrUpdateDataImportProgressWithoutReplication(UUID importOperationId,
             double overallProgressPct, DataImportSubProgress subProgress, double subProgressPct) {
-        DataImportProgress progress = dataImportLock.getProgress(importOperationId);
+        DataImportProgress progress = getDataImportLock().getProgress(importOperationId);
         boolean newObject = false;
         if (progress == null) {
             progress = new DataImportProgressImpl(importOperationId);
@@ -4570,17 +4807,17 @@ Replicator {
         progress.setCurrentSubProgress(subProgress);
         progress.setCurrentSubProgressPct(subProgressPct);
         if (newObject) {
-            dataImportLock.addProgress(importOperationId, progress);
+            getDataImportLock().addProgress(importOperationId, progress);
         }
         return progress;
     }
 
     @Override
     public void setDataImportFailedWithoutReplication(UUID importOperationId, String errorMessage) {
-        DataImportProgress progress = dataImportLock.getProgress(importOperationId);
+        final DataImportProgress progress = getDataImportLock().getProgress(importOperationId);
         if (progress != null) {
-            progress.setFailed();
             progress.setErrorMessage(errorMessage);
+            progress.setFailed();
         }
     }
 
@@ -4687,11 +4924,26 @@ Replicator {
         return bundleContext.getService(ref);
     }
 
-    public void setPolarDataService(PolarDataService service) {
+    public void setPolarDataService(final PolarDataService service) {
         if (this.polarDataService == null && service != null) {
             polarDataService = service;
+            // The polars bundle now registers its service only after it has already obtained the
+            // DomainFactory from the RacingEventService itself (see
+            // com.sap.sailing.polars.impl.Activator), so registering it back here is only kept
+            // as a defensive no-op for services registered by other paths (e.g. test harnesses).
             polarDataService.registerDomainFactory(baseDomainFactory);
             setPolarDataServiceOnAllTrackedRaces(service);
+            if (!restoreTrackedRaces) {
+                // bug6348: without restoration the startup batch is empty. Release its submission
+                // gate now that the polar service is initialized; per-race fix ingestion and
+                // global pipeline drain still gate wind-estimator installation.
+                polarDataService.markLoadingOfAllRacesToRestoreStarted();
+            }
+            // bug6241: unblock the deferred restoreTrackedRaces() background task so it can
+            // now proceed with adding tracked races. Every race added after this point will
+            // observe a non-null polarDataService in this RacingEventServiceImpl and will have
+            // it installed by RaceAdditionListener.raceAdded.
+            polarDataServiceArrived.countDown();
         }
     }
 
@@ -4711,8 +4963,23 @@ Replicator {
                 try {
                     final Iterable<DynamicTrackedRace> trackedRaces = trackedRegatta.getTrackedRaces();
                     for (final TrackedRace trackedRace : trackedRaces) {
-                        trackedRace.setWindEstimation(
-                                service == null ? null : service.createIncrementalWindEstimationTrack(trackedRace));
+                        if (service == null) {
+                            // Tearing down the estimator: setWindEstimation(null) drops the current
+                            // estimator from the race and removes its wind track from the
+                            // MANEUVER_BASED_ESTIMATION source. Any per-race install task that was
+                            // still waiting on runWhenPastLoading / runWhenPolarLoadingFinishedFor
+                            // will observe on its final check that windEstimationFactoryService no
+                            // longer matches the service it was scheduled with (see
+                            // scheduleWindEstimationInstallation) and skip its install.
+                            trackedRace.setWindEstimation(null);
+                        } else {
+                            // Bringing the estimator up: for each race that already exists, schedule
+                            // an install through the per-race primitive so we wait for the race to
+                            // reach past LOADING and for its polar-mining fixes to drain before
+                            // constructing the estimator. This is the "wind-factory arrived after
+                            // races were added" side of the coordination; see bug6241.
+                            scheduleWindEstimationInstallation(trackedRace, service);
+                        }
                     }
                 } catch (Throwable e) {
                     logger.log(Level.SEVERE, "Error reconstructing the wind estimation models for tracked races", e);
@@ -4723,7 +4990,92 @@ Replicator {
         }
     }
 
+    /**
+     * Schedules installation of the maneuver-based wind estimation on {@code trackedRace}.
+     * Waits for two conditions before actually constructing and installing the estimator:
+     * <ul>
+     *   <li>the race has reached a status strictly past
+     *       {@link TrackedRaceStatusEnum#LOADING} (see
+     *       {@link TrackedRace#runWhenPastLoading(Runnable)}). This covers the normal
+     *       LOADING -> TRACKING/FINISHED transition and the direct PREPARED -> TRACKING transition
+     *       used by, e.g., RaceLogRaceTracker-tracked races without loadable data. If the
+     *       race is removed from its regatta before the transition, the install is silently
+     *       cancelled.</li>
+     *   <li>the polar-data mining pipeline has drained (see
+     *       {@link PolarDataService#runWhenPolarLoadingFinishedFor(TrackedRace, Runnable)}).
+     *       Note that this is a <em>global</em> drain of the shared loading pipeline, gated so
+     *       it does not fire before this race's own fixes have been ingested; it waits for the
+     *       fixes of all races loaded so far, not just this one. That is essential because the
+     *       estimator captures the polar service at construction time and uses it for
+     *       classification and wind-speed inference; installing the estimator before the polars
+     *       had been fully mined would leave it permanently using a polar model that reflects an
+     *       incomplete data set. Waiting for the global drain is deliberate and accepts some
+     *       startup sequentiality in exchange for a complete polar model.</li>
+     * </ul>
+     * <p>
+     *
+     * The install is guarded against being obsoleted by a subsequent
+     * {@code setWindEstimationFactoryService(...)} call replacing the factory: at
+     * install time it re-checks that {@link #windEstimationFactoryService} is still the
+     * {@code service} it was scheduled with, and that no other estimator has been installed
+     * on the race in the meantime. It is also guarded against races that reached ERROR
+     * status, on which installing the estimator is pointless.
+     * <p>
+     *
+     * Safe to call multiple times for the same race and/or the same service; the install
+     * itself is guarded against duplicate installation.
+     * <p>
+     *
+     * The method returns immediately after scheduling; the actual install runs on the
+     * shared background executor once both conditions above are satisfied. See bug6241.
+     */
+    private void scheduleWindEstimationInstallation(final TrackedRace trackedRace,
+            final WindEstimationFactoryService service) {
+        trackedRace.runWhenPastLoading(() -> {
+            final TrackedRaceStatusEnum status = trackedRace.getStatus().getStatus();
+            if (status != TrackedRaceStatusEnum.ERROR && polarDataService != null
+                    && windEstimationFactoryService == service) {
+                polarDataService.runWhenPolarLoadingFinishedFor(trackedRace, new Runnable() {
+                    @Override
+                    public void run() {
+                        synchronized (trackedRace) {
+                            if (trackedRace.getWindEstimation() == null
+                                    && windEstimationFactoryService == service
+                                    && trackedRace.getStatus().getStatus() != TrackedRaceStatusEnum.REMOVED
+                                    && trackedRace.getStatus().getStatus() != TrackedRaceStatusEnum.ERROR) {
+                                trackedRace.setWindEstimation(
+                                        service.createIncrementalWindEstimationTrack(trackedRace));
+                            }
+                        }
+                    }
+                    
+                    @Override
+                    public String toString() {
+                        return "Installing wind estimation for race "+trackedRace.getRaceIdentifier().toString();
+                    }
+                });
+            }
+        });
+    }
+
     private void setPolarDataServiceOnAllTrackedRaces(PolarDataService service) {
+        // Capture the wind factory at method entry: on replicas, initiallyFillFromInternal
+        // deserializes each DynamicTrackedRegatta with its trackedRaces map already populated
+        // and then invokes ensureRegattaHasRaceAdditionListener(...), which calls
+        // TrackedRegatta.addRaceListener(...) -- and that in turn synchronously replays
+        // raceAdded(...) for every pre-existing tracked race. At that moment
+        // polarDataService and windEstimationFactoryService may both still be null (their
+        // OSGi trackers have not fired yet). If the wind factory arrives before the polar
+        // service, setWindEstimationFactoryService -> setWindEstimationOnAllTrackedRaces
+        // schedules an install per race, and scheduleWindEstimationInstallation's inner
+        // callback (past-LOADING guard) fires immediately because replicated races typically
+        // arrive already past LOADING; it then sees polarDataService == null and drops out
+        // silently, without registering a runWhenPolarLoadingFinishedFor callback.
+        // We compensate here: once the polar service actually arrives, if the wind factory
+        // is already available, reschedule the install per race. scheduleWindEstimationInstallation
+        // is idempotent, guarded against duplicate installation, so this is a safe no-op
+        // for races that already got their estimator through another code path. See bug6241.
+        final WindEstimationFactoryService factoryAtMethodEntry = windEstimationFactoryService;
         Iterable<Regatta> allRegattas = getAllRegattas();
         for (Regatta regatta : allRegattas) {
             DynamicTrackedRegatta trackedRegatta = getTrackedRegatta(regatta);
@@ -4735,6 +5087,9 @@ Replicator {
                         trackedRace.setPolarDataService(service);
                         if (service != null) {
                             service.insertExistingFixes(trackedRace);
+                            if (factoryAtMethodEntry != null) {
+                                scheduleWindEstimationInstallation(trackedRace, factoryAtMethodEntry);
+                            }
                         }
                     }
                 } catch (Throwable e) {
@@ -4748,6 +5103,16 @@ Replicator {
 
     public void unsetPolarDataService(PolarDataService service) {
         if (polarDataService == service) {
+            // bug6241: losing the PolarDataService is a serious event -- the maneuver-based
+            // wind estimation depends on it and cannot be usefully constructed while it is
+            // absent (see WindEstimationFactoryServiceImpl.createIncrementalWindEstimationTrack).
+            // With the polars bundle now registering its service exactly once after full
+            // initialization (see com.sap.sailing.polars.impl.Activator), this call should only
+            // happen at bundle shutdown or on catastrophic OSGi framework events. Existing
+            // tracked-race estimators are torn down via setPolarDataServiceOnAllTrackedRaces(null)
+            // which invokes TrackedRace.setPolarDataService(null) on each race.
+            logger.log(Level.SEVERE, "PolarDataService has been unregistered from RacingEventService. "
+                    + "Maneuver-based wind estimation is now unavailable until it is re-registered.");
             polarDataService = null;
             setPolarDataServiceOnAllTrackedRaces(null);
         }
@@ -4840,9 +5205,13 @@ Replicator {
             LockUtil.unlockAfterRead(regattasByNameLock);
         }
         if (regatta != null) {
-            // it's important to obtain the read lock here to make sure that while deciding which callbacks to invoke
-            // and which callbacks to enqueue no concurrent insertions take place which could lead to trackers ending
-            // up not invoking their callback. See the write-locking in addRace(...).
+            // It's important to obtain the read lock here so that deciding whether a matching tracker already exists
+            // and, if not, enqueueing the callback happens atomically against addRace(...): under its write lock
+            // addRace(...) publishes the tracker into raceTrackersByRegatta and, in the same critical section, claims
+            // (removes) the callbacks registered here. Without this locking a tracker could be published between our
+            // lookup and our enqueue, leaving the callback neither found here nor claimed there. Note that addRace(...)
+            // only *claims* the callbacks under the lock and *invokes* them after releasing it; the enqueue below is
+            // therefore guaranteed to be either observed by that claim or preceded by a tracker we already found.
             LockUtil.lockForRead(raceTrackersByRegattaLock);
             try {
                 final Set<RaceTracker> raceTrackersForRegatta = raceTrackersByRegatta.get(regatta);
@@ -4871,16 +5240,6 @@ Replicator {
             }
         }
         return raceTrackerCallbacks;
-    }
-
-    private void notifyListenersForNewRaceTracker(RaceTracker tracker) {
-        final RaceIdentifier raceIdentifier = tracker.getRaceIdentifier();
-        if (raceIdentifier != null) {
-            Set<Consumer<RaceTracker>> callbacks = getRaceTrackerCallbacks().remove(raceIdentifier);
-            if (callbacks != null) {
-                callbacks.forEach((callback) -> callback.accept(tracker));
-            }
-        }
     }
 
     @Override
@@ -5305,51 +5664,88 @@ Replicator {
             final String targetServerPassword, final String targetServerBearerToken,
             final boolean exportTrackedRacesAndStartTracking, final UUID importOperationId)
             throws IllegalArgumentException {
-        if (dataImportLock.getProgress(importOperationId) != null) {
-            IllegalArgumentException e = new IllegalArgumentException(
-                    "The UUID for the importOperationId already exists.");
-            logger.log(Level.SEVERE, e.getMessage(), e);
+        registerMasterDataImport(importOperationId);
+        return importMasterDataInternal(urlAsString, leaderboardGroupIds, override, compress, exportWind,
+                exportDeviceConfigurations, targetServerUsername, targetServerPassword, targetServerBearerToken,
+                exportTrackedRacesAndStartTracking, importOperationId);
+    }
+
+    private void registerMasterDataImport(final UUID importOperationId) {
+        if (importOperationId == null) {
+            throw new IllegalArgumentException("An import operation UUID is required");
+        }
+        synchronized (getDataImportLock()) {
+            if (getDataImportLock().getProgress(importOperationId) != null) {
+                throw new IllegalArgumentException("The UUID for the importOperationId already exists.");
+            }
+            createOrUpdateDataImportProgressWithReplication(importOperationId, /* overallProgressPct */ 0.0,
+                    DataImportSubProgress.INIT, /* subProgressPct */ 0.0);
+        }
+    }
+
+    @Override
+    public void importMasterDataAsync(final String urlAsString, final UUID[] leaderboardGroupIds, final boolean override,
+            final boolean compress, final boolean exportWind, final boolean exportDeviceConfigurations,
+            final String targetServerUsername, final String targetServerPassword, final String targetServerBearerToken,
+            final boolean exportTrackedRacesAndStartTracking, final UUID importOperationId) {
+        final UUID[] ids = leaderboardGroupIds.clone();
+        registerMasterDataImport(importOperationId);
+        try {
+            ThreadPoolUtil.INSTANCE.getDefaultBackgroundTaskThreadPoolExecutor().execute(
+                    ThreadPoolUtil.INSTANCE.associateWithSubjectIfAny(() -> {
+                        try {
+                            importMasterDataInternal(urlAsString, ids, override, compress, exportWind,
+                                    exportDeviceConfigurations, targetServerUsername, targetServerPassword,
+                                    targetServerBearerToken, exportTrackedRacesAndStartTracking, importOperationId);
+                        } catch (final Throwable e) {
+                            logger.log(Level.SEVERE, "Asynchronous MDI failed: " + importOperationId, e);
+                        }
+                    }));
+        } catch (final RuntimeException e) {
+            setDataImportFailedWithReplication(importOperationId, e.toString());
+            setDataImportDeleteProgressFromMapTimerWithReplication(importOperationId);
             throw e;
         }
-        final User user = getSecurityService().getCurrentUser();
-        logger.info("Importing master data from "+urlAsString+" for leaderboard groups "+Arrays.toString(leaderboardGroupIds)+
-                " for user "+user.getName()+" with import operation ID "+importOperationId);
-        final String token = getSecurityService().getOrCreateTargetServerBearerToken(urlAsString, targetServerUsername, targetServerPassword, targetServerBearerToken);
-        createOrUpdateDataImportProgressWithReplication(importOperationId, 0.0, DataImportSubProgress.INIT, 0.0);
-        final UserGroup tenant = getSecurityService().getDefaultTenantForCurrentUser();
-        // Create a progress indicator for as long as the server gets data from the other server.
-        // As soon as the server starts the import operation, a progress object will be built on every server
-        long startTime = System.currentTimeMillis();
-        createOrUpdateDataImportProgressWithReplication(importOperationId, 0.01, DataImportSubProgress.CONNECTION_SETUP,
-                0.5);
-        final String query;
-        try {
-            query = createLeaderboardGroupQuery(leaderboardGroupIds, compress, exportWind, exportDeviceConfigurations, exportTrackedRacesAndStartTracking);
-        } catch (UnsupportedEncodingException e1) {
-            throw new RuntimeException(e1);
-        }
+    }
+
+    private Map<LeaderboardGroup, ? extends Iterable<Event>> importMasterDataInternal(final String urlAsString,
+            final UUID[] leaderboardGroupIds, final boolean override, final boolean compress, final boolean exportWind,
+            final boolean exportDeviceConfigurations, final String targetServerUsername,
+            final String targetServerPassword, final String targetServerBearerToken,
+            final boolean exportTrackedRacesAndStartTracking, final UUID importOperationId) {
+        final long startTime = System.currentTimeMillis();
         URLConnection connection = null;
-        URL serverAddress = null;
         InputStream inputStream = null;
+        final Map<LeaderboardGroup, ? extends Iterable<Event>> result;
         try {
+            final User user = getSecurityService().getCurrentUser();
+            logger.info("Importing master data from " + urlAsString + " for leaderboard groups " + Arrays.toString(leaderboardGroupIds)
+                    + " for user " + user.getName() + " with import operation ID " + importOperationId);
+            final String token = getSecurityService().getOrCreateTargetServerBearerToken(urlAsString,
+                    targetServerUsername, targetServerPassword, targetServerBearerToken);
+            final UserGroup tenant = getSecurityService().getDefaultTenantForCurrentUser();
+            createOrUpdateDataImportProgressWithReplication(importOperationId, /* overallProgressPct */ 0.01,
+                    DataImportSubProgress.CONNECTION_SETUP, /* subProgressPct */ 0.5);
+            final String query = createLeaderboardGroupQuery(leaderboardGroupIds, compress, exportWind,
+                    exportDeviceConfigurations, exportTrackedRacesAndStartTracking);
             final String masterDataPath = "/sailingserver/spi/v1/masterdata/leaderboardgroups";
             final URL base = RemoteServerUtil.createBaseUrl(urlAsString);
-            serverAddress = RemoteServerUtil.createRemoteServerUrl(base, masterDataPath, query);
+            final URL serverAddress = RemoteServerUtil.createRemoteServerUrl(base, masterDataPath, query);
             // the response can take a very long time for MDI that include foiling data or such
             connection = HttpUrlConnectionHelper.redirectConnectionWithBearerToken(serverAddress,
-                    Duration.ONE_HOUR.times(2), /* HTTP method */ "POST", token);
-            createOrUpdateDataImportProgressWithReplication(importOperationId, 0.02,
-                    DataImportSubProgress.CONNECTION_ESTABLISH, 0.5);
+                    Duration.ONE_HOUR.times(/* factor */ 2), /* HTTP method */ "POST", token);
+            createOrUpdateDataImportProgressWithReplication(importOperationId, /* overallProgressPct */ 0.02,
+                    DataImportSubProgress.CONNECTION_ESTABLISH, /* subProgressPct */ 0.5);
             if (compress) {
-                InputStream timeoutExtendingInputStream = new TimeoutExtendingInputStream(connection.getInputStream(),
+                final InputStream timeoutExtendingInputStream = new TimeoutExtendingInputStream(connection.getInputStream(),
                         connection);
                 inputStream = new GZIPInputStream(timeoutExtendingInputStream);
             } else {
                 inputStream = new TimeoutExtendingInputStream(connection.getInputStream(), connection);
             }
             final MasterDataImporter importer = new MasterDataImporter(baseDomainFactory, this, user, tenant);
-            return importer.importFromStream(inputStream, importOperationId, override);
-        } catch (Throwable e) {
+            result = importer.importFromStream(inputStream, importOperationId, override);
+        } catch (final Throwable e) {
             // do not assume that RuntimeException is logged properly
             String message = e.getMessage();
             if (connection instanceof HttpURLConnection) {
@@ -5358,7 +5754,7 @@ Replicator {
                             new InputStreamReader(((HttpURLConnection) connection).getErrorStream(),
                                     HttpUrlConnectionHelper.getCharsetFromConnectionOrDefault(connection, "UTF-8")))) {
                     message = bufferedReader.readLine();
-                } catch (Exception exceptionTryingToReadErrorStream) {
+                } catch (final Exception exceptionTryingToReadErrorStream) {
                     // in this case we just stay with the exception's message
                 }
             }
@@ -5368,22 +5764,22 @@ Replicator {
                     + "If the error still occurs, when both servers are running the same version, please report the problem.");
             throw new RuntimeException(e);
         } finally {
-            // close the connection, set all objects to null
+            // Retain terminal progress for polling and release the transfer resources.
             setDataImportDeleteProgressFromMapTimerWithReplication(importOperationId);
-            if (connection != null && connection instanceof HttpURLConnection) {
+            if (connection instanceof HttpURLConnection) {
                 ((HttpURLConnection) connection).disconnect();
             }
-            connection = null;
-            long timeToImport = System.currentTimeMillis() - startTime;
+            final long timeToImport = System.currentTimeMillis() - startTime;
             logger.info(String.format("Took %s ms overall to import master data.", timeToImport));
             try {
                 if (inputStream != null) {
                     inputStream.close();
                 }
-            } catch (IOException e) {
+            } catch (final IOException e) {
                 logger.log(Level.INFO, "Couldn't close input stream", e);
             }
         }
+        return result;
     }
 
     private String createLeaderboardGroupQuery(UUID[] leaderboardGroupIds, boolean compress, boolean exportWind,
