@@ -41,6 +41,13 @@ public interface GPSFixTrack<ItemType, FixType extends GPSFix> extends MappedTra
     void addListener(GPSTrackListener<ItemType, FixType> listener);
     
     void removeListener(GPSTrackListener<ItemType, FixType> listener);
+
+    /**
+     * Revision of the fixes and their validity caches. Changes on accepted additions/replacements and when
+     * validity caches are reset after loading. Read under the track's read lock when building a snapshot;
+     * subsequent lock-free comparisons can detect that the snapshot needs rebuilding.
+     */
+    long getFixesAndValidityVersion();
     
     /**
      * Computes the distance traveled on the smoothened track between the

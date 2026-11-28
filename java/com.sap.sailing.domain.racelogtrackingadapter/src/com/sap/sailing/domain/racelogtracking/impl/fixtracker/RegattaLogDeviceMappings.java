@@ -25,6 +25,7 @@ import com.sap.sailing.domain.abstractlog.regatta.events.RegattaLogDeviceMarkMap
 import com.sap.sailing.domain.abstractlog.regatta.events.RegattaLogRevokeEvent;
 import com.sap.sailing.domain.abstractlog.regatta.impl.BaseRegattaLogEventVisitor;
 import com.sap.sailing.domain.abstractlog.regatta.tracking.analyzing.impl.RegattaLogDeviceMappingFinder;
+import com.sap.sailing.domain.base.Mark;
 import com.sap.sailing.domain.common.DeviceIdentifier;
 import com.sap.sailing.domain.common.racelog.tracking.DoesNotHaveRegattaLogException;
 import com.sap.sailing.domain.racelogtracking.DeviceMapping;
@@ -69,6 +70,9 @@ public abstract class RegattaLogDeviceMappings<ItemT extends WithID> {
 
     private final Map<ItemT, List<DeviceMappingWithRegattaLogEvent<ItemT>>> mappings = new HashMap<>();
     private final Map<DeviceIdentifier, List<DeviceMappingWithRegattaLogEvent<ItemT>>> mappingsByDevice = new HashMap<>();
+
+    /** Immutable snapshot, published with every mapping rebuild, including changes retaining the same device IDs. */
+    private volatile Map<DeviceIdentifier, Set<Mark>> marksByDevice = Collections.emptyMap();
     
     /**
      * A cache that holds the device mappings as the {@link Pair#getB() second} component of the values in this map,
@@ -167,6 +171,11 @@ public abstract class RegattaLogDeviceMappings<ItemT extends WithID> {
     public void addRegattaLog(RegattaLog regattaLog) {
         LockUtil.executeWithWriteLock(knownRegattaLogsLock, () -> addRegattaLogUnlocked(regattaLog));
         updateMappings();
+    }
+
+    /** All potentially mapped marks, regardless of mapping time range; empty also covers boat-only devices. */
+    public Set<Mark> getMarksForDevice(final DeviceIdentifier device) {
+        return marksByDevice.getOrDefault(device, Collections.emptySet());
     }
 
     private void addRegattaLogUnlocked(RegattaLog log) {
@@ -337,6 +346,19 @@ public abstract class RegattaLogDeviceMappings<ItemT extends WithID> {
                 }
             }
             newDeviceIds.addAll(mappingsByDevice.keySet());
+            final Map<DeviceIdentifier, Set<Mark>> newMarksByDevice = new HashMap<>();
+            for (final Map.Entry<DeviceIdentifier, List<DeviceMappingWithRegattaLogEvent<ItemT>>> entry : mappingsByDevice.entrySet()) {
+                final Set<Mark> marks = new HashSet<>();
+                for (final DeviceMappingWithRegattaLogEvent<ItemT> mapping : entry.getValue()) {
+                    if (mapping.getRegattaLogEvent() instanceof RegattaLogDeviceMarkMappingEvent) {
+                        marks.add(((RegattaLogDeviceMarkMappingEvent) mapping.getRegattaLogEvent()).getMappedTo());
+                    }
+                }
+                if (!marks.isEmpty()) {
+                    newMarksByDevice.put(entry.getKey(), Collections.unmodifiableSet(marks));
+                }
+            }
+            marksByDevice = Collections.unmodifiableMap(newMarksByDevice);
         } finally {
             LockUtil.unlockAfterWrite(mappingsLock);
         }

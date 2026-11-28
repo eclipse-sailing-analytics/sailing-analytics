@@ -67,6 +67,9 @@ public abstract class GPSFixTrackImpl<ItemType, FixType extends GPSFix> extends 
 
     private final TrackListenerCollection<ItemType, FixType, GPSTrackListener<ItemType, FixType>> listeners;
 
+    /** Written under the track write lock, read without locking by consumers of cached track summaries. */
+    private volatile long fixesAndValidityVersion;
+
     /**
      * When the owning {@link TrackedRace} is still {@link TrackedRaceStatusEnum#LOADING loading}, validity cache
      * updates are suspended.
@@ -189,6 +192,7 @@ public abstract class GPSFixTrackImpl<ItemType, FixType extends GPSFix> extends 
             for (FixType fix : getRawFixes()) {
                 fix.invalidateCache();
             }
+            fixesAndValidityVersion++;
         } finally {
             unlockAfterWrite();
         }
@@ -214,6 +218,11 @@ public abstract class GPSFixTrackImpl<ItemType, FixType extends GPSFix> extends 
     @Override
     public void addListener(GPSTrackListener<ItemType, FixType> listener) {
         listeners.addListener(listener);
+    }
+
+    @Override
+    public long getFixesAndValidityVersion() {
+        return fixesAndValidityVersion;
     }
 
     @Override
@@ -1169,6 +1178,9 @@ public abstract class GPSFixTrackImpl<ItemType, FixType extends GPSFix> extends 
             addResult = addWithoutLocking(fix, replace);
             if (addResult != AddResult.NOT_ADDED && !validityCachingSuspended) {
                 invalidateValidityAndEstimatedSpeedAndDistanceCaches(fix);
+            }
+            if (addResult != AddResult.NOT_ADDED) {
+                fixesAndValidityVersion++;
             }
         } finally {
             unlockAfterWrite();
