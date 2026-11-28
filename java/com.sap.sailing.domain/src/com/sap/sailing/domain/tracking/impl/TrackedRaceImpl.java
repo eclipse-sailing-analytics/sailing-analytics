@@ -398,7 +398,10 @@ public abstract class TrackedRaceImpl extends TrackedRaceWithWindEssentials impl
     /**
      * handled by {@link #suspendAllCachesNotUpdatingWhileLoading()} and {@link #resumeAllCachesNotUpdatingWhileLoading()}.
      */
-    private boolean cachesSuspended;
+    private volatile boolean cachesSuspended;
+
+    /** Guarded by maneuverApproximators, together with approximation creation and retirement. */
+    private transient int cacheSuspensionCount;
 
     /**
      * Whether during {@link #cachesSuspended suspended caches mode} the maneuver re-calculation was triggered; will lead
@@ -812,6 +815,9 @@ public abstract class TrackedRaceImpl extends TrackedRaceWithWindEssentials impl
      */
     private void readObject(ObjectInputStream ois) throws ClassNotFoundException, IOException {
         ois.defaultReadObject();
+        // Import scopes belong to the sending process. Restore at most the serialized loading suspension;
+        // this also handles older streams which only contain the cachesSuspended flag.
+        cacheSuspensionCount = cachesSuspended ? 1 : 0;
         distancesFromStarboardSideOfStartLineProjectedOntoLineCache = new ConcurrentHashMap<>();
         distancesFromStarboardSideOfStartLineProjectedOntoLineCacheLastAccessTimes = new ConcurrentHashMap<>();
         getRace().getCourse().addCourseListener(this);
@@ -854,6 +860,10 @@ public abstract class TrackedRaceImpl extends TrackedRaceWithWindEssentials impl
         } catch (PatchFailedException e) {
             throw new RuntimeException(e);
         } // a bit unclean: this also tries to work on the DynamicTrackedRaceImpl which isn't fully initialized yet; see also bug6039
+        if (cachesSuspended && getStatus().getStatus() != TrackedRaceStatusEnum.LOADING
+                && getStatus().getStatus() != TrackedRaceStatusEnum.REMOVED) {
+            resumeAllCachesNotUpdatingWhileLoading();
+        }
         ensureManeuverCacheIsFilledForAllCompetitors();  // a bit unclean: this also tries to work on the DynamicTrackedRaceImpl which isn't fully initialized yet; see also bug6039
     }
 
@@ -2907,10 +2917,15 @@ public abstract class TrackedRaceImpl extends TrackedRaceWithWindEssentials impl
     }
 
     @Override
-    public Iterable<GPSFixMoving> approximate(Competitor competitor, TimePoint from, TimePoint to) {
-        return maneuverApproximators.computeIfAbsent(competitor,
-                c->new CourseChangeBasedTrackApproximation(getTrack(c), race.getBoatOfCompetitor(c).getBoatClass(), /* logFixes */ false))
-                .approximate(from, to);
+    public Iterable<GPSFixMoving> approximate(final Competitor competitor, final TimePoint from, final TimePoint to) {
+        final Iterable<GPSFixMoving> result;
+        synchronized (maneuverApproximators) {
+            // UI requests can bypass the maneuver cache; defer these too while tracks are being loaded.
+            result = cachesSuspended ? Collections.emptyList() : maneuverApproximators.computeIfAbsent(competitor,
+                    c -> new CourseChangeBasedTrackApproximation(getTrack(c), race.getBoatOfCompetitor(c).getBoatClass(),
+                            /* logFixes */ false)).approximate(from, to);
+        }
+        return result;
     }
     
     private void ensureManeuverCacheIsFilledForAllCompetitors() {
@@ -3132,34 +3147,44 @@ public abstract class TrackedRaceImpl extends TrackedRaceWithWindEssentials impl
         }
     }
 
-    protected void setStatus(TrackedRaceStatus newStatus) {
+    protected void setStatus(final TrackedRaceStatus newStatus) {
         assert newStatus != null;
-        final TrackedRaceStatusEnum oldStatus;
-        synchronized (getStatusNotifier()) {
-            oldStatus = getStatus().getStatus();
-            this.status = newStatus;
-            getStatusNotifier().notifyAll();
-        }
-        if (newStatus.getStatus() == TrackedRaceStatusEnum.LOADING && oldStatus != TrackedRaceStatusEnum.LOADING) {
-            suspendAllCachesNotUpdatingWhileLoading();
-        } else if (oldStatus == TrackedRaceStatusEnum.LOADING && newStatus.getStatus() != TrackedRaceStatusEnum.LOADING && newStatus.getStatus() != TrackedRaceStatusEnum.REMOVED) {
-            resumeAllCachesNotUpdatingWhileLoading(); // TODO how sure can we be that at this point all loading is really done? TracTrac receivers, e.g., run in threads with queues, and fixes may still be processed after the status has changed
+        synchronized (maneuverApproximators) {
+            final TrackedRaceStatusEnum oldStatus;
+            synchronized (getStatusNotifier()) {
+                oldStatus = getStatus().getStatus();
+                this.status = newStatus;
+                getStatusNotifier().notifyAll();
+            }
+            if (newStatus.getStatus() == TrackedRaceStatusEnum.LOADING && oldStatus != TrackedRaceStatusEnum.LOADING) {
+                suspendAllCachesNotUpdatingWhileLoading();
+            } else if (oldStatus == TrackedRaceStatusEnum.LOADING && newStatus.getStatus() != TrackedRaceStatusEnum.LOADING && newStatus.getStatus() != TrackedRaceStatusEnum.REMOVED) {
+                resumeAllCachesNotUpdatingWhileLoading(); // asynchronous receivers may still have queued fixes
+            }
         }
     }
 
-    private void suspendAllCachesNotUpdatingWhileLoading() {
-        cachesSuspended = true;
-        for (GPSFixTrack<Competitor, GPSFixMoving> competitorTrack : tracks.values()) {
-            competitorTrack.suspendValidityAndMaxSpeedCaching();
+    public void suspendAllCachesNotUpdatingWhileLoading() {
+        synchronized (maneuverApproximators) {
+            if (cacheSuspensionCount++ == 0) {
+                cachesSuspended = true;
+                maneuverCache.suspend();
+                for (final CourseChangeBasedTrackApproximation approximator : maneuverApproximators.values()) {
+                    approximator.detachFromTrack();
+                }
+                maneuverApproximators.clear();
+                for (final GPSFixTrack<Competitor, GPSFixMoving> competitorTrack : tracks.values()) {
+                    competitorTrack.suspendValidityAndMaxSpeedCaching();
+                }
+                for (final GPSFixTrack<Mark, GPSFix> markTrack : markTracks.values()) {
+                    markTrack.suspendValidityAndMaxSpeedCaching();
+                }
+                if (markPassingCalculator != null) {
+                    markPassingCalculator.suspend();
+                }
+                crossTrackErrorCache.suspend();
+            }
         }
-        for (GPSFixTrack<Mark, GPSFix> markTrack : markTracks.values()) {
-            markTrack.suspendValidityAndMaxSpeedCaching();
-        }
-        if (markPassingCalculator != null) {
-            markPassingCalculator.suspend();
-        }
-        crossTrackErrorCache.suspend();
-        maneuverCache.suspend();
     }
     
     public void waitForAllRaceLogsAttached() {
@@ -3192,22 +3217,30 @@ public abstract class TrackedRaceImpl extends TrackedRaceWithWindEssentials impl
         }
     }
 
-    private void resumeAllCachesNotUpdatingWhileLoading() {
-        cachesSuspended = false;
-        shortTimeWindCache.clearCache();
-        for (GPSFixTrack<Competitor, GPSFixMoving> competitorTrack : tracks.values()) {
-            competitorTrack.resumeValidityAndMaxSpeedCaching();
-        }
-        for (GPSFixTrack<Mark, GPSFix> markTrack : markTracks.values()) {
-            markTrack.resumeValidityAndMaxSpeedCaching();
-        }
-        if (markPassingCalculator != null) {
-            markPassingCalculator.resume();
-        }
-        crossTrackErrorCache.resume();
-        maneuverCache.resume(); // needs to happen before triggering recalculation because this decides about fingerprint matching
-        if (triggerManeuverCacheInvalidationForAllCompetitors) {
-            triggerManeuverCacheRecalculationForAllCompetitors();
+    public void resumeAllCachesNotUpdatingWhileLoading() {
+        synchronized (maneuverApproximators) {
+            if (cacheSuspensionCount == 0) {
+                throw new IllegalStateException("Unbalanced cache resumption for " + getRaceIdentifier());
+            }
+            if (--cacheSuspensionCount == 0) {
+                shortTimeWindCache.clearCache();
+                for (final GPSFixTrack<Competitor, GPSFixMoving> competitorTrack : tracks.values()) {
+                    competitorTrack.resumeValidityAndMaxSpeedCaching();
+                }
+                for (final GPSFixTrack<Mark, GPSFix> markTrack : markTracks.values()) {
+                    markTrack.resumeValidityAndMaxSpeedCaching();
+                }
+                cachesSuspended = false;
+                if (markPassingCalculator != null) {
+                    markPassingCalculator.resume();
+                }
+                crossTrackErrorCache.resume();
+                maneuverCache.resume(); // resume before recalculation to decide about fingerprint matching
+                if (triggerManeuverCacheInvalidationForAllCompetitors) {
+                    triggerManeuverCacheInvalidationForAllCompetitors = false;
+                    triggerManeuverCacheRecalculationForAllCompetitors();
+                }
+            }
         }
     }
 

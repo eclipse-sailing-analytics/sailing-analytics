@@ -499,6 +499,15 @@ public class CourseChangeBasedTrackApproximation implements Serializable, GPSTra
     public int getNumberOfFixesAdded() {
         return numberOfFixesAdded;
     }
+
+    /** Guarded by this instance's monitor; retirement is permanent. */
+    private boolean detached;
+
+    /** Retires this instance before its owning race discards it for bulk loading. */
+    public synchronized void detachFromTrack() {
+        detached = true;
+        track.removeListener(this);
+    }
     
     /**
      * We want the listener relationship with the track to be serialized, e.g., during initial load / replication
@@ -509,7 +518,15 @@ public class CourseChangeBasedTrackApproximation implements Serializable, GPSTra
     }
 
     @Override
-    public synchronized void gpsFixReceived(GPSFixMoving fix, Competitor competitor, boolean firstFixInTrack, AddResult addedOrReplaced) {
+    public synchronized void gpsFixReceived(final GPSFixMoving fix, final Competitor competitor,
+            final boolean firstFixInTrack, final AddResult addedOrReplaced) {
+        // Track notifications take a listener snapshot: an already queued callback may outlive removal.
+        if (!detached) {
+            processFix(fix, competitor);
+        }
+    }
+
+    private void processFix(final GPSFixMoving fix, final Competitor competitor) {
         assert competitor == track.getTrackedItem();
         if (fixWindow.isAtOrAfterFirst(fix.getTimePoint())) {
             addFix(fix);

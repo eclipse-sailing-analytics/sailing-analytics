@@ -18,6 +18,14 @@ import com.sap.sse.common.TimePoint;
 
 public interface DynamicTrackedRace extends TrackedRace {
     /**
+     * Suspends derived caches for bulk fix ingestion. Calls may be nested with ordinary race loading;
+     * every successful call must be paired with {@link #resumeAllCachesNotUpdatingWhileLoading()}.
+     */
+    void suspendAllCachesNotUpdatingWhileLoading();
+
+    void resumeAllCachesNotUpdatingWhileLoading();
+
+    /**
      * Records a position and speed and course over ground fix for a competitor, but only if the fix's {@link GPSFixMoving#getTimePoint()}
      * is within this race's {@link #getStartOfTracking() start} and {@link #getEndOfTracking() end} of tracking time interval.
      * 

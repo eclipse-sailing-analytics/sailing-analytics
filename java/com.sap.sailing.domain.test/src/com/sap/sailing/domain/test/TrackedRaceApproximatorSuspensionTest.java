@@ -12,8 +12,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.sap.sailing.domain.base.CompetitorWithBoat;
+import com.sap.sailing.domain.base.DomainFactory;
 import com.sap.sailing.domain.common.TrackedRaceStatusEnum;
 import com.sap.sailing.domain.common.tracking.impl.GPSFixMovingImpl;
+import com.sap.sailing.domain.shared.tracking.AddResult;
 import com.sap.sailing.domain.tracking.impl.CourseChangeBasedTrackApproximation;
 import com.sap.sailing.domain.tracking.impl.DynamicTrackedRaceImpl;
 import com.sap.sailing.domain.tracking.impl.TrackedRaceImpl;
@@ -24,7 +26,7 @@ import com.sap.sse.common.impl.DegreePosition;
 import com.sap.sse.common.impl.KnotSpeedWithBearingImpl;
 
 /** Re-entering bulk loading must retire approximators created during earlier use of the race. */
-public class TrackedRaceApproximatorSuspensionTest {
+public class TrackedRaceApproximatorSuspensionTest extends AbstractSerializationTest {
     private final TimePoint start = TimePoint.of(/* millis */ 1000000);
     private CompetitorWithBoat competitor;
     private DynamicTrackedRaceImpl race;
@@ -59,8 +61,19 @@ public class TrackedRaceApproximatorSuspensionTest {
     }
 
     @Test
+    public void callbackAlreadyCapturedByTrackCannotReviveRetiredApproximator() throws Exception {
+        final CourseChangeBasedTrackApproximation previous = getApproximator();
+        final int fixesProcessed = previous.getNumberOfFixesAdded();
+        setStatus(TrackedRaceStatusEnum.LOADING);
+        previous.gpsFixReceived(race.getTrack(competitor).getLastFixAtOrBefore(start.plus(/* milliseconds */ 600000)),
+                competitor, /* firstFixInTrack */ false, AddResult.REPLACED);
+        assertEquals(fixesProcessed, previous.getNumberOfFixesAdded());
+    }
+
+    @Test
     public void resumingRebuildsFromFixesReceivedWhileLoading() throws Exception {
         final CourseChangeBasedTrackApproximation previous = getApproximator();
+        final int previouslyProcessed = previous.getNumberOfFixesAdded();
         setStatus(TrackedRaceStatusEnum.LOADING);
         addFix(/* minute */ 6);
         addFix(/* minute */ 7);
@@ -69,10 +82,13 @@ public class TrackedRaceApproximatorSuspensionTest {
         final CourseChangeBasedTrackApproximation rebuilt = getApproximator();
         assertNotSame(previous, rebuilt, "Resumption must lazily reconstruct approximation state");
         final int processedBeforeNextFix = rebuilt.getNumberOfFixesAdded();
-        assertTrue(processedBeforeNextFix > 0);
+        assertEquals(previouslyProcessed + 2, processedBeforeNextFix,
+                "Reconstruction must include both fixes received while loading");
         addFix(/* minute */ 8);
         assertTrue(rebuilt.getNumberOfFixesAdded() > processedBeforeNextFix,
                 "The rebuilt approximator must continue receiving new fixes");
+        assertEquals(previouslyProcessed, previous.getNumberOfFixesAdded(),
+                "The retired approximator must stay detached after resumption");
     }
 
     @Test
@@ -83,12 +99,68 @@ public class TrackedRaceApproximatorSuspensionTest {
         assertTrue(approximation.getNumberOfFixesAdded() > fixesProcessed);
     }
 
+    @Test
+    public void importSuspensionOutlivesOrdinaryLoading() throws Exception {
+        race.suspendAllCachesNotUpdatingWhileLoading();
+        setStatus(TrackedRaceStatusEnum.LOADING);
+        setStatus(TrackedRaceStatusEnum.TRACKING);
+        addFix(/* minute */ 6);
+        race.approximate(competitor, start, start.plus(/* milliseconds */ 600000));
+        assertNull(getApproximator());
+        race.resumeAllCachesNotUpdatingWhileLoading();
+        race.approximate(competitor, start, start.plus(/* milliseconds */ 600000));
+        assertTrue(getApproximator().getNumberOfFixesAdded() > 0);
+    }
+
+    @Test
+    public void ordinaryLoadingOutlivesImportSuspension() throws Exception {
+        setStatus(TrackedRaceStatusEnum.LOADING);
+        race.suspendAllCachesNotUpdatingWhileLoading();
+        race.resumeAllCachesNotUpdatingWhileLoading();
+        race.approximate(competitor, start, start.plus(/* milliseconds */ 600000));
+        assertNull(getApproximator());
+        setStatus(TrackedRaceStatusEnum.TRACKING);
+        race.approximate(competitor, start, start.plus(/* milliseconds */ 600000));
+        assertTrue(getApproximator().getNumberOfFixesAdded() > 0);
+    }
+
     private void addFix(final int minute) {
         race.recordFix(competitor, new GPSFixMovingImpl(
                 new DegreePosition(/* latDeg */ 54.47 + minute * 0.0001, /* lngDeg */ 10.24),
                 start.plus(minute * 60000L),
                 new KnotSpeedWithBearingImpl(/* speedInKnots */ 1, new DegreeBearingImpl(/* bearingDeg */ 0)),
                 /* optionalTrueHeading */ null));
+    }
+
+    @Test
+    public void serializationDoesNotTransferImportSuspensionsToReplica() throws Exception {
+        race.suspendAllCachesNotUpdatingWhileLoading();
+        race.suspendAllCachesNotUpdatingWhileLoading();
+        final DynamicTrackedRaceImpl copy = cloneBySerialization(race, DomainFactory.INSTANCE);
+        race.resumeAllCachesNotUpdatingWhileLoading();
+        race.resumeAllCachesNotUpdatingWhileLoading();
+        race = copy;
+        competitor = (CompetitorWithBoat) race.getRace().getCompetitors().iterator().next();
+        race.initializeAfterDeserialization();
+        race.approximate(competitor, start, start.plus(/* milliseconds */ 600000));
+        assertTrue(getApproximator().getNumberOfFixesAdded() > 0);
+    }
+
+    @Test
+    public void serializedLoadingResumesWithoutWaitingForSourceImportScope() throws Exception {
+        setStatus(TrackedRaceStatusEnum.LOADING);
+        race.suspendAllCachesNotUpdatingWhileLoading();
+        final DynamicTrackedRaceImpl copy = cloneBySerialization(race, DomainFactory.INSTANCE);
+        race.resumeAllCachesNotUpdatingWhileLoading();
+        setStatus(TrackedRaceStatusEnum.TRACKING);
+        race = copy;
+        competitor = (CompetitorWithBoat) race.getRace().getCompetitors().iterator().next();
+        race.initializeAfterDeserialization();
+        race.approximate(competitor, start, start.plus(/* milliseconds */ 600000));
+        assertNull(getApproximator());
+        setStatus(TrackedRaceStatusEnum.TRACKING);
+        race.approximate(competitor, start, start.plus(/* milliseconds */ 600000));
+        assertTrue(getApproximator().getNumberOfFixesAdded() > 0);
     }
 
     private void setStatus(final TrackedRaceStatusEnum status) {

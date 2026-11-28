@@ -178,7 +178,8 @@ public class MasterDataImporter {
         // completion, rather than prematurely when the object-graph operation returns (see bug6227 and bug6322).
         final ClassLoader oldContextClassLoaderForStreamedData = Thread.currentThread().getContextClassLoader();
         Thread.currentThread().setContextClassLoader(racingEventService.getDeserializationClassLoader());
-        try {
+        try (final MasterDataImportCacheSuspension suspension = new MasterDataImportCacheSuspension(topLevelMasterData,
+                racingEventService)) {
             racingEventService.createOrUpdateDataImportProgressWithReplication(importOperationId, PROGRESS_TRANSFER_COMPLETED,
                     DataImportSubProgress.IMPORT_WIND_TRACKS, /* subProgressPct */ 0);
             logger.info("Reading wind tracks for import "+importOperationId);

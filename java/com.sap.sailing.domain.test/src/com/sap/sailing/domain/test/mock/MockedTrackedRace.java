@@ -118,6 +118,14 @@ public class MockedTrackedRace implements DynamicTrackedRace {
     public void initializeAfterDeserialization() {
     }
 
+    @Override
+    public void suspendAllCachesNotUpdatingWhileLoading() {
+    }
+
+    @Override
+    public void resumeAllCachesNotUpdatingWhileLoading() {
+    }
+
     public WindTrack getWindTrack() {
         return windTrack;
     }
